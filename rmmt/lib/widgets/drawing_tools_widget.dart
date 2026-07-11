@@ -56,6 +56,20 @@ class DrawingToolsWidget extends StatelessWidget {
                         : Colors.white,
                 minimumSize: const Size(double.infinity, 40)),
           ),
+          const SizedBox(height: 8),
+          const Text('Save Delivery Rooms', style: TextStyle(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.add_location_alt_outlined),
+            label: const Text('Add Room Destination'),
+            onPressed: () => mapProvider.setDrawingMode(DrawingMode.addRoom),
+            style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    mapProvider.drawingMode == DrawingMode.addRoom
+                        ? Colors.blue[100]
+                        : Colors.white,
+                minimumSize: const Size(double.infinity, 40)),
+          ),
         ],
       ),
     );

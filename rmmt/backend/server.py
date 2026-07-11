@@ -22,12 +22,19 @@ import numpy as np
 import os
 import json
 import shutil
-import open3d as o3d
+try:
+    import open3d as o3d
+except ImportError:
+    o3d = None
+
 import cv2
 import logging
 from typing import List, Tuple, Dict, Any
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.patches import Circle as MplCircle
+
+from datetime import datetime, timezone
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -35,6 +42,17 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+
+# Database Configuration
+db_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance', 'app.db')
+os.makedirs(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance'), exist_ok=True)
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+from models import db, migrate, User, Room, Delivery
+db.init_app(app)
+migrate.init_app(app, db)
+
 
 # ===================================================================
 # VISUALIZATION CONFIGURATION
@@ -727,6 +745,537 @@ def upload_pcd():
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": "PCD processing error"}), 500
+
+# ===================================================================
+# DATABASE API ENDPOINTS
+# ===================================================================
+
+from datetime import datetime, timezone
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# 1. AUTHENTICATION ROUTES
+
+@app.route('/auth/register', methods=['POST'])
+def auth_register():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No input data provided"}), 400
+        
+        name = data.get('name')
+        email = data.get('email')
+        password = data.get('password')
+        role = 'user'
+
+        if not name or not email or not password:
+            return jsonify({"error": "Missing required fields: name, email, password"}), 400
+
+        # Check if user already exists
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({"error": "User with this email already exists"}), 409
+
+        # Hash password and create user
+        password_hash = generate_password_hash(password)
+        new_user = User(
+            name=name,
+            email=email,
+            password_hash=password_hash,
+            role=role
+        )
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify({"message": "User registered successfully", "user": new_user.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in register: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/auth/login', methods=['POST'])
+def auth_login():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No credentials provided"}), 400
+
+        email = data.get('email')
+        password = data.get('password')
+
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+
+        user = User.query.filter_by(email=email).first()
+        if not user or not check_password_hash(user.password_hash, password):
+            return jsonify({"error": "Invalid email or password"}), 401
+
+        if not user.is_active:
+            return jsonify({"error": "This account has been deactivated."}), 403
+
+        return jsonify({
+            "message": "Login successful",
+            "user": user.to_dict()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error in login: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# 2. ROOM CRUD ROUTES
+
+@app.route('/rooms', methods=['GET'])
+def get_rooms():
+    try:
+        is_public = request.args.get('public', 'false').lower() == 'true'
+        
+        # Check if requester is admin (if headers are provided and is not public)
+        requester_id = request.headers.get('X-User-Id')
+        requester_role = request.headers.get('X-User-Role')
+        
+        is_admin = False
+        if requester_id and requester_role == 'admin':
+            requester = User.query.get(int(requester_id))
+            if requester and requester.role == 'admin' and requester.is_active:
+                is_admin = True
+        
+        rooms = Room.query.all()
+        
+        if is_public or not is_admin:
+            # Return only public fields
+            res = []
+            for r in rooms:
+                res.append({
+                    'id': r.id,
+                    'name': r.name,
+                    'label_x': r.label_x,
+                    'label_y': r.label_y,
+                    'region_width': r.region_width,
+                    'region_height': r.region_height,
+                    'is_robot_home': r.is_robot_home
+                })
+            return jsonify(res), 200
+        else:
+            # Return full data for admin
+            return jsonify([room.to_dict() for room in rooms]), 200
+    except Exception as e:
+        logger.error(f"Error fetching rooms: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/rooms', methods=['POST'])
+def create_room():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No room data provided"}), 400
+
+        name = data.get('name')
+        x = data.get('x')
+        y = data.get('y')
+        theta = data.get('theta')
+        is_robot_home = data.get('is_robot_home', False)
+
+        if not name or x is None or y is None or theta is None:
+            return jsonify({"error": "Missing required fields: name, x, y, theta"}), 400
+
+        # If this room is robot home, unset any other home rooms
+        if is_robot_home:
+            Room.query.update({Room.is_robot_home: False})
+
+        new_room = Room(
+            name=name,
+            x=float(x),
+            y=float(y),
+            theta=float(theta),
+            is_robot_home=bool(is_robot_home),
+            label_x=float(data['label_x']) if data.get('label_x') is not None else None,
+            label_y=float(data['label_y']) if data.get('label_y') is not None else None,
+            region_width=float(data['region_width']) if data.get('region_width') is not None else None,
+            region_height=float(data['region_height']) if data.get('region_height') is not None else None
+        )
+        db.session.add(new_room)
+        db.session.commit()
+
+        return jsonify({"message": "Room created successfully", "room": new_room.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating room: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/rooms/<int:room_id>', methods=['PUT'])
+def update_room(room_id):
+    try:
+        requester_id = request.headers.get('X-User-Id')
+        requester_role = request.headers.get('X-User-Role')
+        
+        if not requester_id or requester_role != 'admin':
+            return jsonify({"error": "Admin privilege required"}), 403
+            
+        requester = User.query.get(int(requester_id))
+        if not requester or requester.role != 'admin' or not requester.is_active:
+            return jsonify({"error": "Admin privilege required"}), 403
+
+        room = Room.query.get(room_id)
+        if not room:
+            return jsonify({"error": "Room not found"}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No update data provided"}), 400
+
+        if 'name' in data:
+            room.name = data['name']
+        if 'x' in data:
+            room.x = float(data['x'])
+        if 'y' in data:
+            room.y = float(data['y'])
+        if 'theta' in data:
+            room.theta = float(data['theta'])
+        if 'is_robot_home' in data:
+            is_home = bool(data['is_robot_home'])
+            if is_home and not room.is_robot_home:
+                Room.query.update({Room.is_robot_home: False})
+            room.is_robot_home = is_home
+        
+        if 'label_x' in data:
+            room.label_x = float(data['label_x']) if data['label_x'] is not None else None
+        if 'label_y' in data:
+            room.label_y = float(data['label_y']) if data['label_y'] is not None else None
+        if 'region_width' in data:
+            room.region_width = float(data['region_width']) if data['region_width'] is not None else None
+        if 'region_height' in data:
+            room.region_height = float(data['region_height']) if data['region_height'] is not None else None
+
+        db.session.commit()
+        return jsonify({"message": "Room updated successfully", "room": room.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating room {room_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/rooms/<int:room_id>', methods=['DELETE'])
+def delete_room(room_id):
+    try:
+        room = Room.query.get(room_id)
+        if not room:
+            return jsonify({"error": "Room not found"}), 404
+
+        db.session.delete(room)
+        db.session.commit()
+        return jsonify({"message": f"Room {room_id} deleted successfully"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting room: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# 3. DELIVERY LIFECYCLE ROUTES
+
+def dispatch_delivery(delivery):
+    """
+    Simulates sending the navigation goal to ROS2 Nav2.
+    """
+    logger.info(f"=== DISPATCHING DELIVERY #{delivery.id} ===")
+    logger.info(f"  Sender: {delivery.sender_name}")
+    logger.info(f"  Recipient: {delivery.recipient_name}")
+    logger.info(f"  Pickup Room: {delivery.pickup_room.name if delivery.pickup_room else 'Robot Home'}")
+    logger.info(f"  Destination Room: {delivery.recipient_room.name}")
+
+def check_scheduled_deliveries():
+    try:
+        with app.app_context():
+            now_utc = datetime.now(timezone.utc)
+            now_naive = datetime.now()
+            
+            pending_scheduled = Delivery.query.filter(
+                Delivery.status == 'pending',
+                Delivery.scheduled_at != None,
+                Delivery.is_dispatched == False
+            ).all()
+            
+            for delivery in pending_scheduled:
+                sched = delivery.scheduled_at
+                is_due = False
+                if sched.tzinfo is not None:
+                    is_due = sched <= now_utc
+                else:
+                    is_due = sched <= now_naive
+                
+                if is_due:
+                    try:
+                        dispatch_delivery(delivery)
+                        delivery.is_dispatched = True
+                        db.session.commit()
+                        logger.info(f"Successfully dispatched scheduled delivery #{delivery.id}")
+                    except Exception as ex:
+                        db.session.rollback()
+                        logger.error(f"Error dispatching scheduled delivery {delivery.id}: {ex}")
+    except Exception as e:
+        logger.error(f"Error in check_scheduled_deliveries: {e}")
+
+# Initialize BackgroundScheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=check_scheduled_deliveries, trigger="interval", minutes=1)
+scheduler.start()
+
+
+@app.route('/deliveries', methods=['POST'])
+def create_delivery():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No delivery data provided"}), 400
+
+        sender_id = data.get('sender_id')
+        recipient_room_id = data.get('recipient_room_id')
+        pickup_room_id = data.get('pickup_room_id')
+        delivery_type = data.get('delivery_type')
+        recipient_name = data.get('recipient_name')
+        scheduled_at_str = data.get('scheduled_at')
+
+        if not sender_id or not recipient_room_id or not delivery_type or not recipient_name:
+            return jsonify({"error": "Missing required fields: sender_id, recipient_room_id, delivery_type, recipient_name"}), 400
+
+        if delivery_type not in ['room_to_room', 'home_to_room']:
+            return jsonify({"error": "Invalid delivery_type. Must be 'room_to_room' or 'home_to_room'"}), 400
+
+        if delivery_type == 'room_to_room' and not pickup_room_id:
+            return jsonify({"error": "pickup_room_id is required for room_to_room delivery"}), 400
+
+        # Parse scheduled_at if provided
+        scheduled_at_dt = None
+        if scheduled_at_str:
+            try:
+                scheduled_at_dt = datetime.fromisoformat(scheduled_at_str.replace('Z', '+00:00'))
+            except Exception as ex:
+                return jsonify({"error": f"Invalid scheduled_at format. Must be ISO-8601: {ex}"}), 400
+
+        # Validate User and Rooms exist
+        sender = User.query.get(sender_id)
+        if not sender:
+            return jsonify({"error": "Sender user not found"}), 404
+
+        sender_name = sender.name if (sender.name and sender.name.strip() != "") else f"User {sender_id}"
+
+        recipient = Room.query.get(recipient_room_id)
+        if not recipient:
+            return jsonify({"error": "Recipient room not found"}), 404
+
+        if pickup_room_id:
+            pickup = Room.query.get(pickup_room_id)
+            if not pickup:
+                return jsonify({"error": "Pickup room not found"}), 404
+
+        # Check if scheduled in the future
+        is_future = False
+        if scheduled_at_dt:
+            if scheduled_at_dt.tzinfo is not None:
+                is_future = scheduled_at_dt > datetime.now(timezone.utc)
+            else:
+                is_future = scheduled_at_dt > datetime.now()
+
+        new_delivery = Delivery(
+            sender_id=sender_id,
+            sender_name=sender_name,
+            recipient_room_id=recipient_room_id,
+            pickup_room_id=pickup_room_id if delivery_type == 'room_to_room' else None,
+            delivery_type=delivery_type,
+            recipient_name=recipient_name,
+            status='pending',
+            scheduled_at=scheduled_at_dt,
+            is_dispatched=not is_future
+        )
+        db.session.add(new_delivery)
+        db.session.commit()
+
+        if not is_future:
+            dispatch_delivery(new_delivery)
+
+        return jsonify({"message": "Delivery requested successfully", "delivery": new_delivery.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating delivery: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/deliveries', methods=['GET'])
+def get_deliveries():
+    try:
+        requester_id = request.headers.get('X-User-Id')
+        requester_role = request.headers.get('X-User-Role')
+        
+        is_admin = False
+        user_id = None
+        if requester_id:
+            try:
+                user_id = int(requester_id)
+                user = User.query.get(user_id)
+                if user and user.is_active and user.role == 'admin' and requester_role == 'admin':
+                    is_admin = True
+            except (ValueError, TypeError):
+                pass
+
+        status = request.args.get('status')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        query = Delivery.query
+
+        # Enforce role scoping
+        if requester_id and not is_admin:
+            query = query.filter_by(sender_id=user_id)
+        else:
+            sender_id = request.args.get('sender_id')
+            if sender_id:
+                query = query.filter_by(sender_id=int(sender_id))
+
+        if status:
+            query = query.filter_by(status=status)
+
+        if date_from:
+            try:
+                val_df = date_from
+                if len(val_df) == 10:
+                    val_df += "T00:00:00"
+                from_dt = datetime.fromisoformat(val_df)
+                query = query.filter(Delivery.created_at >= from_dt)
+            except ValueError:
+                return jsonify({"error": "Invalid date_from format. Use YYYY-MM-DD or ISO 8601"}), 400
+
+        if date_to:
+            try:
+                val_dt = date_to
+                if len(val_dt) == 10:
+                    val_dt += "T23:59:59"
+                to_dt = datetime.fromisoformat(val_dt)
+                query = query.filter(Delivery.created_at <= to_dt)
+            except ValueError:
+                return jsonify({"error": "Invalid date_to format. Use YYYY-MM-DD or ISO 8601"}), 400
+
+        query = query.order_by(Delivery.created_at.desc())
+        deliveries = query.all()
+        return jsonify([delivery.to_dict() for delivery in deliveries]), 200
+    except Exception as e:
+        logger.error(f"Error fetching deliveries: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/deliveries/<int:delivery_id>', methods=['GET'])
+def get_delivery(delivery_id):
+    try:
+        delivery = Delivery.query.get(delivery_id)
+        if not delivery:
+            return jsonify({"error": "Delivery task not found"}), 404
+        return jsonify(delivery.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error fetching delivery {delivery_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/deliveries/<int:delivery_id>', methods=['PUT'])
+def update_delivery(delivery_id):
+    try:
+        delivery = Delivery.query.get(delivery_id)
+        if not delivery:
+            return jsonify({"error": "Delivery task not found"}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No update data provided"}), 400
+
+        status = data.get('status')
+        if not status:
+            return jsonify({"error": "status field is required"}), 400
+
+        valid_statuses = ['pending', 'picked_up', 'in_transit', 'delivered', 'failed']
+        if status not in valid_statuses:
+            return jsonify({"error": f"Invalid status. Must be one of: {', '.join(valid_statuses)}"}), 400
+
+        delivery.status = status
+        if status == 'delivered':
+            delivery.delivered_at = datetime.now(timezone.utc)
+        else:
+            delivery.delivered_at = None
+
+        db.session.commit()
+        return jsonify({"message": "Delivery updated successfully", "delivery": delivery.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating delivery {delivery_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# 4. USER ENDPOINT (ADMIN VIEW)
+
+@app.route('/users', methods=['GET'])
+def get_users():
+    try:
+        requester_id = request.headers.get('X-User-Id')
+        requester_role = request.headers.get('X-User-Role')
+        
+        if not requester_id or requester_role != 'admin':
+            return jsonify({"error": "Admin privilege required"}), 403
+            
+        requester = User.query.get(int(requester_id))
+        if not requester or requester.role != 'admin' or not requester.is_active:
+            return jsonify({"error": "Admin privilege required"}), 403
+
+        users = User.query.all()
+        return jsonify([user.to_dict() for user in users]), 200
+    except Exception as e:
+        logger.error(f"Error fetching users: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    try:
+        requester_id = request.headers.get('X-User-Id')
+        requester_role = request.headers.get('X-User-Role')
+        
+        if not requester_id or requester_role != 'admin':
+            return jsonify({"error": "Admin privilege required"}), 403
+            
+        requester = User.query.get(int(requester_id))
+        if not requester or requester.role != 'admin' or not requester.is_active:
+            return jsonify({"error": "Admin privilege required"}), 403
+
+        target_user = User.query.get(user_id)
+        if not target_user:
+            return jsonify({"error": "User not found"}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No update data provided"}), 400
+
+        # Safety Check: Prevent admins from deactivating themselves
+        if 'is_active' in data and not data['is_active'] and target_user.id == requester.id:
+            return jsonify({"error": "Admins cannot deactivate themselves"}), 400
+
+        # Safety Check: Prevent admins from changing their own role to non-admin if they are the only admin
+        if 'role' in data and data['role'] != 'admin' and target_user.id == requester.id:
+            other_admins = User.query.filter(User.role == 'admin', User.is_active == True, User.id != target_user.id).first()
+            if not other_admins:
+                return jsonify({"error": "Cannot change role. At least one active Admin is required"}), 400
+
+        if 'role' in data:
+            role = data['role']
+            if role not in ['admin', 'user']:
+                return jsonify({"error": "Invalid role. Must be 'admin' or 'user'"}), 400
+            target_user.role = role
+
+        if 'is_active' in data:
+            target_user.is_active = bool(data['is_active'])
+
+        db.session.commit()
+        return jsonify({"message": "User updated successfully", "user": target_user.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating user {user_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     startup_logging()

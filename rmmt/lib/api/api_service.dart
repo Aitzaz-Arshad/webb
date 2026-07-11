@@ -12,7 +12,7 @@ class ApiService {
   final Logger _logger = Logger();
   
   // ✓ CHANGED: Back to localhost from Firebase
-  final String _baseUrl = 'http://127.0.0.1:5000';
+  final String _baseUrl = 'http://localhost:5000';
   // Previous Firebase URL was: 'https://autonomous-robot-2b4c4.web.app'
   
   final Uuid _uuid = Uuid();
@@ -318,4 +318,274 @@ class ApiService {
       throw Exception('Failed to upload PCD: $e');
     }
   }
-}
+
+  // --- REST API FOR AUTONOMOUS DELIVERY SYSTEM ---
+
+  Future<Map<String, dynamic>> register(
+    String name,
+    String email,
+    String password,
+    String role,
+  ) async {
+    final url = Uri.parse('$_baseUrl/auth/register');
+    _logger.d('Registering user: $email ($role)');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'name': name,
+        'email': email,
+        'password': password,
+        'role': role,
+      }),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 201) {
+      throw Exception(data['error'] ?? 'Registration failed');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    final url = Uri.parse('$_baseUrl/auth/login');
+    _logger.d('Logging in user: $email');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'email': email,
+        'password': password,
+      }),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Login failed');
+    }
+    return data;
+  }
+
+  Future<List<dynamic>> getRooms({bool public = false, int? requesterId, String? requesterRole}) async {
+    final Map<String, String> headers = {'Content-Type': 'application/json'};
+    if (requesterId != null && requesterRole != null) {
+      headers['X-User-Id'] = requesterId.toString();
+      headers['X-User-Role'] = requesterRole;
+    }
+    
+    final url = Uri.parse('$_baseUrl/rooms${public ? "?public=true" : ""}');
+    final response = await http.get(url, headers: headers);
+    if (response.statusCode != 200) {
+      throw Exception(json.decode(response.body)['error'] ?? 'Failed to load rooms');
+    }
+    return json.decode(response.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> createRoom(
+    String name,
+    double x,
+    double y,
+    double theta,
+    bool isRobotHome, {
+    double? labelX,
+    double? labelY,
+    double? regionWidth,
+    double? regionHeight,
+  }) async {
+    final url = Uri.parse('$_baseUrl/rooms');
+    _logger.d('Creating room: $name ($x, $y)');
+    final Map<String, dynamic> body = {
+      'name': name,
+      'x': x,
+      'y': y,
+      'theta': theta,
+      'is_robot_home': isRobotHome,
+    };
+    if (labelX != null) body['label_x'] = labelX;
+    if (labelY != null) body['label_y'] = labelY;
+    if (regionWidth != null) body['region_width'] = regionWidth;
+    if (regionHeight != null) body['region_height'] = regionHeight;
+
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 201) {
+      throw Exception(data['error'] ?? 'Failed to create room');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> updateRoom(
+    int requesterId,
+    String requesterRole,
+    int roomId, {
+    String? name,
+    double? x,
+    double? y,
+    double? theta,
+    bool? isRobotHome,
+    double? labelX,
+    double? labelY,
+    double? regionWidth,
+    double? regionHeight,
+  }) async {
+    final url = Uri.parse('$_baseUrl/rooms/$roomId');
+    _logger.d('Updating room $roomId');
+    final Map<String, dynamic> body = {};
+    if (name != null) body['name'] = name;
+    if (x != null) body['x'] = x;
+    if (y != null) body['y'] = y;
+    if (theta != null) body['theta'] = theta;
+    if (isRobotHome != null) body['is_robot_home'] = isRobotHome;
+    if (labelX != null) body['label_x'] = labelX;
+    if (labelY != null) body['label_y'] = labelY;
+    if (regionWidth != null) body['region_width'] = regionWidth;
+    if (regionHeight != null) body['region_height'] = regionHeight;
+
+    final response = await http.put(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': requesterId.toString(),
+        'X-User-Role': requesterRole,
+      },
+      body: json.encode(body),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to update room');
+    }
+    return data;
+  }
+
+  Future<void> deleteRoom(int roomId) async {
+    final url = Uri.parse('$_baseUrl/rooms/$roomId');
+    final response = await http.delete(url);
+    if (response.statusCode != 200) {
+      throw Exception(json.decode(response.body)['error'] ?? 'Failed to delete room');
+    }
+  }
+
+  Future<Map<String, dynamic>> createDelivery(
+    int senderId,
+    int recipientRoomId,
+    int? pickupRoomId,
+    String deliveryType,
+    String recipientName, {
+    DateTime? scheduledAt,
+  }) async {
+    final url = Uri.parse('$_baseUrl/deliveries');
+    _logger.d('Requesting delivery: $deliveryType to $recipientName, scheduled: $scheduledAt');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'sender_id': senderId,
+        'recipient_room_id': recipientRoomId,
+        'pickup_room_id': pickupRoomId,
+        'delivery_type': deliveryType,
+        'recipient_name': recipientName,
+        'scheduled_at': scheduledAt?.toIso8601String(),
+      }),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 201) {
+      throw Exception(data['error'] ?? 'Failed to create delivery');
+    }
+    return data;
+  }
+
+  Future<List<dynamic>> getDeliveries({
+    int? requesterId,
+    String? requesterRole,
+    int? senderId,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final List<String> params = [];
+    if (senderId != null) params.add('sender_id=$senderId');
+    if (status != null) params.add('status=$status');
+    if (dateFrom != null) params.add('date_from=$dateFrom');
+    if (dateTo != null) params.add('date_to=$dateTo');
+    
+    final query = params.isEmpty ? '' : '?${params.join('&')}';
+    final url = Uri.parse('$_baseUrl/deliveries$query');
+    
+    final Map<String, String> headers = {'Content-Type': 'application/json'};
+    if (requesterId != null && requesterRole != null) {
+      headers['X-User-Id'] = requesterId.toString();
+      headers['X-User-Role'] = requesterRole;
+    }
+
+    final response = await http.get(url, headers: headers);
+    if (response.statusCode != 200) {
+      throw Exception(json.decode(response.body)['error'] ?? 'Failed to load deliveries');
+    }
+    return json.decode(response.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> updateDeliveryStatus(
+    int deliveryId,
+    String status,
+  ) async {
+    final url = Uri.parse('$_baseUrl/deliveries/$deliveryId');
+    _logger.d('Updating delivery $deliveryId status to: $status');
+    final response = await http.put(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'status': status}),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to update delivery');
+    }
+    return data;
+  }
+
+  Future<List<dynamic>> getUsers(int requesterId, String requesterRole) async {
+    final url = Uri.parse('$_baseUrl/users');
+    final response = await http.get(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': requesterId.toString(),
+        'X-User-Role': requesterRole,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception(json.decode(response.body)['error'] ?? 'Failed to load users');
+    }
+    return json.decode(response.body) as List<dynamic>;
+  }
+
+  Future<Map<String, dynamic>> updateUser(
+    int requesterId,
+    String requesterRole,
+    int targetUserId, {
+    String? role,
+    bool? isActive,
+  }) async {
+    final url = Uri.parse('$_baseUrl/users/$targetUserId');
+    _logger.d('Updating user $targetUserId: role=$role, isActive=$isActive');
+    final Map<String, dynamic> body = {};
+    if (role != null) body['role'] = role;
+    if (isActive != null) body['is_active'] = isActive;
+
+    final response = await http.put(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': requesterId.toString(),
+        'X-User-Role': requesterRole,
+      },
+      body: json.encode(body),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to update user');
+    }
+    return data;
+  }
+}

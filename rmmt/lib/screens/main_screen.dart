@@ -1,14 +1,17 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_planning/models/obstacle.dart';
+import 'package:path_planning/models/room_model.dart';
 import 'package:path_planning/providers/map_provider.dart';
+import 'package:path_planning/utils/geo_utils.dart';
 import 'package:path_planning/widgets/drawing_tools_widget.dart';
 import 'package:path_planning/widgets/path_planning_widget.dart';
 import 'package:path_planning/widgets/save_map_widget.dart';
 import 'package:path_planning/widgets/saved_maps_widget.dart';
 import 'package:path_planning/widgets/indoor_map_widget.dart';
 import 'package:provider/provider.dart';
+
 
 class MainScreen extends StatelessWidget {
   const MainScreen({super.key});
@@ -64,8 +67,13 @@ class MainScreen extends StatelessWidget {
                   options: MapOptions(
                     initialCenter: mapProvider.initialCenter,
                     initialZoom: 15.0,
-                    onTap: (tapPosition, point) =>
-                        mapProvider.handleMapTap(point),
+                    onTap: (tapPosition, point) {
+                      if (mapProvider.drawingMode == DrawingMode.addRoom) {
+                        _showAddRoomDialog(context, mapProvider, point);
+                      } else {
+                        mapProvider.handleMapTap(point);
+                      }
+                    },
                   ),
                   children: [
                     TileLayer(
@@ -248,6 +256,30 @@ class MainScreen extends StatelessWidget {
                           ),
                       ],
                     ),
+
+                    // --- ROOM MARKER LAYER (NEW) ---
+                    if (mapProvider.boundary != null &&
+                        mapProvider.boundary!.points != null &&
+                        mapProvider.boundary!.points!.isNotEmpty)
+                      MarkerLayer(
+                        markers: mapProvider.dbRooms.map((room) {
+                          final ref = mapProvider.boundary!.points![0];
+                          final latLng = GeoUtils.metersToLatLng(room.x, room.y, ref);
+                          return Marker(
+                            point: latLng,
+                            width: 60,
+                            height: 60,
+                            child: Tooltip(
+                              message: room.name + (room.isRobotHome ? ' (Home Base)' : ''),
+                              child: Icon(
+                                room.isRobotHome ? Icons.home_rounded : Icons.room_rounded,
+                                color: room.isRobotHome ? Colors.purple : Colors.indigo,
+                                size: 30,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
                   ],
                 );
               },
@@ -255,6 +287,75 @@ class MainScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showAddRoomDialog(BuildContext context, MapProvider mapProvider, LatLng point) {
+    final nameController = TextEditingController();
+    bool isRobotHome = false;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Add Room Destination'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Room Name / Number',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  CheckboxListTile(
+                    title: const Text('Robot Home Base'),
+                    value: isRobotHome,
+                    onChanged: (val) {
+                      setState(() {
+                        isRobotHome = val ?? false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    mapProvider.setDrawingMode(DrawingMode.none);
+                  },
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (nameController.text.isNotEmpty) {
+                      final name = nameController.text.trim();
+                      Navigator.of(context).pop();
+                      final success = await mapProvider.addRoom(name, point, isRobotHome);
+                      mapProvider.setDrawingMode(DrawingMode.none);
+                      if (success) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Room "$name" added successfully!')),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Failed to add room: ${mapProvider.errorMessage}')),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

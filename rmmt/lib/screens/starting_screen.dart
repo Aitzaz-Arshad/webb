@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'main_screen.dart';
+import 'login_screen.dart';
 
 // ---- Brand tokens -----------------------------------------------------
 // Swap kAppName for your project's real name/title.
@@ -184,7 +184,7 @@ class _StartingScreenState extends State<StartingScreen>
                         onPressed: () {
                           Navigator.of(context).pushReplacement(
                             MaterialPageRoute(
-                              builder: (context) => MainScreen(),
+                              builder: (context) => const LoginScreen(),
                             ),
                           );
                         },

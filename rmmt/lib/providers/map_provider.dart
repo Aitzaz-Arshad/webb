@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_planning/api/api_service.dart';
 import 'package:path_planning/models/map_data.dart';
 import 'package:path_planning/models/obstacle.dart';
+import 'package:path_planning/models/room_model.dart';
 import 'package:path_planning/utils/geo_utils.dart';
 
 enum DrawingMode {
@@ -14,7 +15,9 @@ enum DrawingMode {
   obstacleCircle,
   setStart,
   setEnd,
+  addRoom,
 }
+
 
 enum PlanningAlgorithm { aStar, dynamicProgramming }
 
@@ -117,11 +120,18 @@ class MapProvider extends ChangeNotifier {
   PlanningAlgorithm? _lastUsedAlgorithm;
   PlanningAlgorithm? get lastUsedAlgorithm => _lastUsedAlgorithm;
 
+  List<RoomModel> _dbRooms = [];
+  List<RoomModel> get dbRooms => _dbRooms;
+
+  bool _isLoadingRooms = false;
+  bool get isLoadingRooms => _isLoadingRooms;
+
   final ApiService _apiService = ApiService();
 
   MapProvider() {
     _determinePosition();
     _loadSavedMaps();
+    fetchRooms();
   }
 
   void setBoundaryAndObstacles(Obstacle boundary, List<Obstacle> obstacles) {
@@ -273,6 +283,8 @@ class MapProvider extends ChangeNotifier {
       case DrawingMode.setEnd:
         _endPoint = point;
         _drawingMode = DrawingMode.none;
+        break;
+      case DrawingMode.addRoom:
         break;
       case DrawingMode.none:
         break;
@@ -512,4 +524,50 @@ class MapProvider extends ChangeNotifier {
     _lastUsedAlgorithm = null;
     notifyListeners();
   }
-}
+
+  Future<void> fetchRooms() async {
+    _isLoadingRooms = true;
+    _errorMessage = '';
+    notifyListeners();
+
+    try {
+      final List<dynamic> result = await _apiService.getRooms();
+      _dbRooms = result.map((r) => RoomModel.fromJson(r)).toList();
+      _isLoadingRooms = false;
+      _errorMessage = '';
+      print('Fetched ${_dbRooms.length} rooms from database');
+    } catch (e) {
+      _errorMessage = 'Failed to fetch rooms: $e';
+      print('Error fetching rooms: $e');
+      _isLoadingRooms = false;
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  Future<bool> addRoom(String name, LatLng point, bool isRobotHome) async {
+    if (_boundary == null || _boundary!.points == null || _boundary!.points!.isEmpty) {
+      _errorMessage = 'Please set workspace boundary first.';
+      notifyListeners();
+      return false;
+    }
+
+    _errorMessage = '';
+    notifyListeners();
+
+    try {
+      final ref = _boundary!.points![0];
+      final coords = GeoUtils.latLngToMeters(point, ref);
+      final double x = coords['x']!;
+      final double y = coords['y']!;
+
+      await _apiService.createRoom(name, x, y, 0.0, isRobotHome);
+      await fetchRooms();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+}
