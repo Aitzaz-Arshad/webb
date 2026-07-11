@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "488278102256",
+    "project_id": "autonomous-robot-2b4c4",
+    "storage_bucket": "autonomous-robot-2b4c4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:488278102256:android:28967bf86ec73dce4b3235",
+        "android_client_info": {
+          "package_name": "com.example.path_planning"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDQ0nZh_sKD4GN0lc3w2MZGSV1kIPVlbBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

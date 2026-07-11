@@ -1,0 +1,84 @@
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+# Import the specific obstacle configuration and safety margin from your environment file
+from obstacle_list import MobileRobotWorkspace, ROBOT_BIGGEST_DIMENTION
+
+def plot_working_area_and_obstacles():
+    """
+    Generates a plot of the defined working boundary and the obstacles.
+    """
+    
+    # --- 1. Define Boundary and Setup Figure ---
+    
+    # The MobileRobotWorkspace uses coordinates scaled by 10, so the boundary 
+    # should fit this scale (e.g., up to 160x160 based on your main script)
+    x_min, x_max = 0, 160
+    y_min, y_max = 0, 160
+    
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_aspect('equal', adjustable='box') 
+    ax.set_title("PSO Path Planner Working Area (MobileRobotWorkspace)")
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Y Coordinate")
+
+    # --- 2. Draw the Main Boundary (Green Rectangle) ---
+    
+    # This represents the large green boundary box from your original image.
+    boundary_rect = patches.Rectangle(
+        (x_min, y_min),                 # Bottom-left corner
+        x_max - x_min,                  # Width
+        y_max - y_min,                  # Height
+        linewidth=2, 
+        edgecolor='green', 
+        facecolor='none', 
+        linestyle='--'
+    )
+    ax.add_patch(boundary_rect)
+
+    # --- 3. Plot Obstacles ---
+    
+    # We use the raw MobileRobotWorkspace configuration from obstacle_list.py.
+    # Note: These obstacles are the *true* obstacles, not the inflated C-Space ones,
+    # but we plot them as a solid red mass like in your original image.
+    
+    for i, obs in enumerate(MobileRobotWorkspace):
+        # Create a polygon patch for each obstacle. 
+        # The 'obs' array already defines a closed polygon (last point = first point).
+        polygon = patches.Polygon(
+            obs, 
+            closed=True, 
+            facecolor='red', 
+            alpha=0.6,
+            edgecolor='red',
+            linewidth=1,
+            label="Obstacles" if i == 0 else "" # Only label the first one
+        )
+        ax.add_patch(polygon)
+        
+    # --- 4. Add Safety Margin Visualization (Optional but informative) ---
+    
+    # You can also show the required safety margin (ROBOT_BIGGEST_DIMENTION = 3)
+    # This visually confirms the C-Space expansion concept.
+    
+    # (Since this requires the inflation logic from helper_DPR_obj, we will skip
+    # plotting the *inflated* boundary here to keep the file standalone and simple, 
+    # but the current red areas are the objects the robot must avoid.)
+
+    # --- 5. Add Start/End Points (Example based on your main script) ---
+    
+    startPoint = [155, 5]
+    endPoint = [5, 155]
+    
+    ax.plot(startPoint[0], startPoint[1], 'o', color='red', markersize=8, label='Start Point')
+    ax.plot(endPoint[0], endPoint[1], 'o', color='blue', markersize=8, label='Goal Point')
+
+    # --- 6. Finalize and Show ---
+    ax.legend(loc='lower right')
+    plt.grid(True, linestyle=':', alpha=0.5)
+    plt.show()
+
+if __name__ == '__main__':
+    plot_working_area_and_obstacles()

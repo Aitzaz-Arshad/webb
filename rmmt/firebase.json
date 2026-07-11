@@ -1,0 +1,39 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "autonomous-robot-2b4c4",
+          "appId": "1:488278102256:android:28967bf86ec73dce4b3235",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "autonomous-robot-2b4c4",
+          "configurations": {
+            "android": "1:488278102256:android:28967bf86ec73dce4b3235",
+            "ios": "1:488278102256:ios:eb44658c8b9cd3f94b3235",
+            "macos": "1:488278102256:ios:eb44658c8b9cd3f94b3235",
+            "web": "1:488278102256:web:9f6402a21477c0484b3235",
+            "windows": "1:488278102256:web:1c1c70e7e6a1bdd64b3235"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
