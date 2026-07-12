@@ -14,6 +14,8 @@ class ApiService {
   // ✓ CHANGED: Back to localhost from Firebase
   final String _baseUrl = 'http://localhost:5000';
   // Previous Firebase URL was: 'https://autonomous-robot-2b4c4.web.app'
+
+  String get baseUrl => _baseUrl;
   
   final Uuid _uuid = Uuid();
 

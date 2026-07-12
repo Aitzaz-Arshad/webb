@@ -89,12 +89,18 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
         }
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _formKey.currentState?.validate();
+    });
   }
 
   void _clearSelection() {
     setState(() {
       _selectedPickupRoomId = null;
       _selectedRecipientRoomId = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _formKey.currentState?.validate();
     });
   }
 
@@ -246,11 +252,29 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
 
                                 return Stack(
                                   children: [
-                                    // Floor plan image
+                                    // Floor plan image (network-fetched with bounded layout)
                                     Positioned.fill(
-                                      child: Image.asset(
-                                        'assets/images/floor_plan.png',
-                                        fit: BoxFit.contain,
+                                      child: SizedBox(
+                                        width: parentW,
+                                        height: parentH,
+                                        child: Image.network(
+                                          '${_apiService.baseUrl}/floorplan',
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return const Center(
+                                              child: Text(
+                                                'Failed to load floor plan from server',
+                                                style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                                              ),
+                                            );
+                                          },
+                                          loadingBuilder: (context, child, loadingProgress) {
+                                            if (loadingProgress == null) return child;
+                                            return const Center(
+                                              child: CircularProgressIndicator(color: kAccent),
+                                            );
+                                          },
+                                        ),
                                       ),
                                     ),
                                     // Overlaid interactive room regions (excluding home)
@@ -423,6 +447,173 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                             ),
                             const SizedBox(height: 24),
 
+                            // Dropdown selections for rooms
+                            if (_deliveryType == 'home_to_room') ...[
+                              const Text(
+                                'Select Destination Room',
+                                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<int>(
+                                value: _selectedRecipientRoomId,
+                                dropdownColor: kNavyMid,
+                                icon: const Icon(Icons.arrow_drop_down, color: kAccent),
+                                style: const TextStyle(color: Colors.white),
+                                hint: const Text('Choose a room...', style: TextStyle(color: Color(0xFF8A94A6), fontSize: 13)),
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: kNavyDark,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: kAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  errorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedErrorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
+                                  return DropdownMenuItem<int>(
+                                    value: room['id'] as int,
+                                    child: Text(room['name'] as String),
+                                  );
+                                }).toList(),
+                                onChanged: (int? newValue) {
+                                  setState(() {
+                                    _selectedRecipientRoomId = newValue;
+                                  });
+                                  _formKey.currentState?.validate();
+                                },
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Please select a destination room';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 24),
+                            ] else if (_deliveryType == 'room_to_room') ...[
+                              const Text(
+                                'Pickup Room',
+                                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<int>(
+                                value: _selectedPickupRoomId,
+                                dropdownColor: kNavyMid,
+                                icon: const Icon(Icons.arrow_drop_down, color: kAccent),
+                                style: const TextStyle(color: Colors.white),
+                                hint: const Text('Choose pickup room...', style: TextStyle(color: Color(0xFF8A94A6), fontSize: 13)),
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: kNavyDark,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: kAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  errorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedErrorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
+                                  return DropdownMenuItem<int>(
+                                    value: room['id'] as int,
+                                    child: Text(room['name'] as String),
+                                  );
+                                }).toList(),
+                                onChanged: (int? newValue) {
+                                  setState(() {
+                                    _selectedPickupRoomId = newValue;
+                                  });
+                                  _formKey.currentState?.validate();
+                                },
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Please select a pickup room';
+                                  }
+                                  if (value == _selectedRecipientRoomId) {
+                                    return 'Pickup room cannot be the same as destination';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 24),
+                              const Text(
+                                'Select Destination Room',
+                                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<int>(
+                                value: _selectedRecipientRoomId,
+                                dropdownColor: kNavyMid,
+                                icon: const Icon(Icons.arrow_drop_down, color: kAccent),
+                                style: const TextStyle(color: Colors.white),
+                                hint: const Text('Choose destination room...', style: TextStyle(color: Color(0xFF8A94A6), fontSize: 13)),
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: kNavyDark,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: kAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  errorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  focusedErrorBorder: OutlineInputBorder(
+                                    borderSide: const BorderSide(color: Colors.redAccent, width: 2),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
+                                  return DropdownMenuItem<int>(
+                                    value: room['id'] as int,
+                                    child: Text(room['name'] as String),
+                                  );
+                                }).toList(),
+                                onChanged: (int? newValue) {
+                                  setState(() {
+                                    _selectedRecipientRoomId = newValue;
+                                  });
+                                  _formKey.currentState?.validate();
+                                },
+                                validator: (value) {
+                                  if (value == null) {
+                                    return 'Please select a destination room';
+                                  }
+                                  if (value == _selectedPickupRoomId) {
+                                    return 'Destination room cannot be the same as pickup';
+                                  }
+                                  return null;
+                                },
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+
                             // Dynamic Helper Instructions & Status Card
                             Container(
                               padding: const EdgeInsets.all(16),
@@ -451,19 +642,32 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                               style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
                             ),
                             const SizedBox(height: 12),
-                            Row(
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Expanded(
+                                SizedBox(
+                                  width: double.infinity,
                                   child: ChoiceChip(
-                                    label: const Text('Start Now'),
+                                    label: const Center(
+                                      child: Text('Start Now'),
+                                    ),
                                     selected: !_isScheduled,
                                     selectedColor: kAccent,
                                     backgroundColor: kNavyDark,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
                                     labelStyle: TextStyle(
                                       color: !_isScheduled ? kNavyDark : Colors.white,
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                                      fontSize: 15,
                                     ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      side: BorderSide(
+                                        color: !_isScheduled ? Colors.transparent : Colors.white24,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    showCheckmark: true,
                                     onSelected: (selected) {
                                       if (selected) {
                                         setState(() {
@@ -474,18 +678,30 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                     },
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                Expanded(
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: 200,
                                   child: ChoiceChip(
-                                    label: const Text('Send Later'),
+                                    label: const Center(
+                                      child: Text('Send Later'),
+                                    ),
                                     selected: _isScheduled,
                                     selectedColor: kAccent,
                                     backgroundColor: kNavyDark,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
                                     labelStyle: TextStyle(
                                       color: _isScheduled ? kNavyDark : Colors.white,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 13,
                                     ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                      side: BorderSide(
+                                        color: _isScheduled ? Colors.transparent : Colors.white24,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    showCheckmark: true,
                                     onSelected: (selected) {
                                       if (selected) {
                                         setState(() {
@@ -576,7 +792,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                               icon: _isSubmitting 
                                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kNavyDark))
                                   : const Icon(Icons.local_shipping_rounded),
-                              label: const Text('Request Transport'),
+                              label: const Text('Confirm Delivery'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kAccent,
                                 foregroundColor: kNavyDark,

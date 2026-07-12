@@ -115,8 +115,8 @@ class _StartingScreenState extends State<StartingScreen>
                         builder: (context, _) => CustomPaint(
                           painter: _PulseRingPainter(_pulse.value),
                           child: const SizedBox(
-                            width: 152,
-                            height: 152,
+                            width: 240,
+                            height: 240,
                             child: _RobotBadge(),
                           ),
                         ),
@@ -248,8 +248,8 @@ class _RobotBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        width: 112,
-        height: 112,
+        width: 180,
+        height: 180,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: const LinearGradient(
@@ -267,7 +267,7 @@ class _RobotBadge extends StatelessWidget {
         ),
         child: const Icon(
           Icons.smart_toy_rounded,
-          size: 58,
+          size: 96,
           color: kNavyDark,
         ),
       ),
@@ -385,7 +385,7 @@ class _PulseRingPainter extends CustomPainter {
 
     for (final phase in [0.0, 0.5]) {
       final localT = (t + phase) % 1.0;
-      final radius = 46 + localT * (maxRadius - 46);
+      final radius = 76 + localT * (maxRadius - 76);
       final opacity = (1 - localT) * 0.35;
       final paint = Paint()
         ..color = kAccent.withOpacity(opacity.clamp(0.0, 1.0))

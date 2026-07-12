@@ -21,17 +21,23 @@ class UserDashboardScreen extends StatefulWidget {
 class _UserDashboardScreenState extends State<UserDashboardScreen> {
   final ApiService _apiService = ApiService();
   List<dynamic> _myDeliveries = [];
+  List<dynamic> _activeDeliveries = [];
   bool _isLoading = false;
+  bool _isLoadingRobotStatus = false;
   String? _statusFilter;
   DateTime? _dateFrom;
   DateTime? _dateTo;
   final Set<int> _expandedIds = {};
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _historySectionKey = GlobalKey();
+  bool _showHistory = false;
+  bool _isHoveringRobot = false;
 
   @override
   void initState() {
     super.initState();
     _loadMyDeliveries();
+    _loadRobotStatus();
   }
 
   @override
@@ -73,6 +79,65 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     }
   }
 
+  Future<void> _loadRobotStatus() async {
+    setState(() {
+      _isLoadingRobotStatus = true;
+    });
+
+    try {
+      final inTransit = await _apiService.getDeliveries(status: 'in_transit');
+      final pickedUp = await _apiService.getDeliveries(status: 'picked_up');
+      final seen = <int>{};
+      final active = <dynamic>[];
+      for (final delivery in [...inTransit, ...pickedUp]) {
+        final id = delivery['id'] as int;
+        if (seen.add(id)) active.add(delivery);
+      }
+      setState(() {
+        _activeDeliveries = active;
+      });
+    } catch (e) {
+      print('Error loading robot status: $e');
+    } finally {
+      setState(() {
+        _isLoadingRobotStatus = false;
+      });
+    }
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([_loadMyDeliveries(), _loadRobotStatus()]);
+  }
+
+  void _scrollToHistory() {
+    final context = _historySectionKey.currentContext;
+    if (context != null) {
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _toggleHistory() {
+    setState(() {
+      _showHistory = !_showHistory;
+    });
+    if (_showHistory) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToHistory();
+      });
+    }
+  }
+
+  Map<String, dynamic>? get _currentActiveDelivery {
+    if (_activeDeliveries.isEmpty) return null;
+    return _activeDeliveries.first as Map<String, dynamic>;
+  }
+
+  bool get _isRobotBusy => _activeDeliveries.isNotEmpty;
+
   Color _getStatusColor(String status) {
     switch (status) {
       case 'pending':
@@ -103,7 +168,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
-            onPressed: _loadMyDeliveries,
+            onPressed: _refreshAll,
           ),
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: Colors.white70),
@@ -137,67 +202,55 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
               style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 14),
             ),
             const SizedBox(height: 28),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final result = await Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const NewDeliveryScreen()),
-                      );
-                      if (result == true) {
-                        _loadMyDeliveries();
-                      }
-                    },
-                    icon: const Icon(Icons.add_shopping_cart_rounded, color: kNavyDark),
-                    label: const Text(
-                      'Request New Delivery',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kAccent,
-                      foregroundColor: kNavyDark,
-                      minimumSize: const Size(120, 54),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: _buildActionButtons(context),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      if (_scrollController.hasClients) {
-                        _scrollController.animateTo(
-                          0.0,
-                          duration: const Duration(milliseconds: 500),
-                          curve: Curves.easeInOut,
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.history_rounded, color: kAccent),
-                    label: const Text(
-                      'View Delivery History',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: kAccent, width: 1.5),
-                      minimumSize: const Size(120, 54),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
+                  const SizedBox(width: 24),
+                  Expanded(
+                    flex: 4,
+                    child: _buildRobotStatusCard(),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 36),
-            const Text(
-              'My Delivery Requests',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+                ],
               ),
             ),
+            if (_showHistory) ...[
+              const SizedBox(height: 36),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      KeyedSubtree(
+                        key: _historySectionKey,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'My Delivery Requests',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                              tooltip: 'Close History',
+                              onPressed: () {
+                                setState(() {
+                                  _showHistory = false;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
             Row(
               children: [
                 Expanded(
@@ -347,131 +400,303 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: kAccent),
-                    )
-                  : _myDeliveries.isEmpty
-                      ? Center(
-                          child: Text(
-                            'No delivery requests submitted yet.',
-                            style: TextStyle(color: Colors.white.withOpacity(0.4)),
+            if (_isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 48),
+                child: Center(
+                  child: CircularProgressIndicator(color: kAccent),
+                ),
+              )
+            else if (_myDeliveries.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Center(
+                  child: Text(
+                    'No delivery requests submitted yet.',
+                    style: TextStyle(color: Colors.white.withOpacity(0.4)),
+                  ),
+                ),
+              )
+            else
+              ..._myDeliveries.map((delivery) {
+                final status = delivery['status'] as String;
+                final deliveryId = delivery['id'] as int;
+                final bool isExpanded = _expandedIds.contains(deliveryId);
+
+                return Card(
+                  color: kNavyMid,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 10,
+                    ),
+                    title: Text(
+                      'Delivery #${delivery['id']}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 6),
+                        Text(
+                          'To: ${delivery['recipient_name']} — ${delivery['recipient_room_name'] ?? 'Room ${delivery['recipient_room_id']}'}',
+                          style: const TextStyle(
+                            color: kAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
                           ),
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          itemCount: _myDeliveries.length,
-                          itemBuilder: (context, index) {
-                            final delivery = _myDeliveries[index];
-                            final status = delivery['status'] as String;
-
-                             final deliveryId = delivery['id'] as int;
-                             final bool isExpanded = _expandedIds.contains(deliveryId);
-
-                             return Card(
-                               color: kNavyMid,
-                               shape: RoundedRectangleBorder(
-                                 borderRadius: BorderRadius.circular(14),
-                               ),
-                               margin: const EdgeInsets.only(bottom: 12),
-                               child: ListTile(
-                                 contentPadding: const EdgeInsets.symmetric(
-                                   horizontal: 18,
-                                   vertical: 10,
-                                 ),
-                                 title: Text(
-                                   'Delivery #${delivery['id']}',
-                                   style: const TextStyle(
-                                     color: Colors.white,
-                                     fontWeight: FontWeight.bold,
-                                   ),
-                                 ),
-                                 subtitle: Column(
-                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                   children: [
-                                     const SizedBox(height: 6),
-                                     Text(
-                                       'To: ${delivery['recipient_name']} — ${delivery['recipient_room_name'] ?? 'Room ${delivery['recipient_room_id']}'}',
-                                       style: const TextStyle(
-                                         color: kAccent,
-                                         fontWeight: FontWeight.bold,
-                                         fontSize: 13,
-                                       ),
-                                     ),
-                                     const SizedBox(height: 6),
-                                     Row(
-                                       children: [
-                                         Icon(
-                                           delivery['pickup_room_id'] == null
-                                               ? Icons.home_rounded
-                                               : Icons.room_rounded,
-                                           size: 14,
-                                           color: Colors.white30,
-                                         ),
-                                         const SizedBox(width: 6),
-                                         Expanded(
-                                           child: Text(
-                                             '${delivery['pickup_room_name'] ?? "Robot Home"} ➔ ${delivery['recipient_room_name'] ?? "Room " + delivery['recipient_room_id'].toString()}',
-                                             style: TextStyle(
-                                               color: Colors.white.withOpacity(0.55),
-                                               fontSize: 12,
-                                             ),
-                                           ),
-                                         ),
-                                       ],
-                                     ),
-                                     if (isExpanded) ...[
-                                       const SizedBox(height: 12),
-                                       const Divider(color: Colors.white10),
-                                       const SizedBox(height: 8),
-                                       _buildDetailRow('Recipient name', '${delivery['recipient_name']}'),
-                                       _buildDetailRow('Delivery Type', '${delivery['delivery_type'].toString().replaceAll('_', ' ').toUpperCase()}'),
-                                       _buildDetailRow('Pickup Location', '${delivery['pickup_room_name'] ?? 'Robot Charging Hub (Home)'}'),
-                                       _buildDetailRow('Destination Room', '${delivery['recipient_room_name'] ?? 'Room ' + delivery['recipient_room_id'].toString()}'),
-                                       _buildDetailRow('Created At', '${delivery['created_at'].toString().replaceAll('T', ' ').split('.')[0]}'),
-                                       _buildDetailRow('Delivered At', delivery['delivered_at'] != null ? '${delivery['delivered_at'].toString().replaceAll('T', ' ').split('.')[0]}' : 'In Progress'),
-                                     ]
-                                   ],
-                                 ),
-                                 trailing: Container(
-                                   padding: const EdgeInsets.symmetric(
-                                     horizontal: 12,
-                                     vertical: 6,
-                                   ),
-                                   decoration: BoxDecoration(
-                                     color: _getStatusColor(status).withOpacity(0.15),
-                                     border: Border.all(
-                                       color: _getStatusColor(status),
-                                       width: 1.5,
-                                     ),
-                                     borderRadius: BorderRadius.circular(20),
-                                   ),
-                                   child: Text(
-                                     status.replaceAll('_', ' ').toUpperCase(),
-                                     style: TextStyle(
-                                       color: _getStatusColor(status),
-                                       fontWeight: FontWeight.bold,
-                                       fontSize: 11,
-                                     ),
-                                   ),
-                                 ),
-                                 onTap: () {
-                                   setState(() {
-                                     if (isExpanded) {
-                                       _expandedIds.remove(deliveryId);
-                                     } else {
-                                       _expandedIds.add(deliveryId);
-                                     }
-                                   });
-                                 },
-                               ),
-                             );
-                          },
                         ),
-            ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              delivery['pickup_room_id'] == null
+                                  ? Icons.home_rounded
+                                  : Icons.room_rounded,
+                              size: 14,
+                              color: Colors.white30,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                '${delivery['pickup_room_name'] ?? "Robot Home"} ➔ ${delivery['recipient_room_name'] ?? "Room " + delivery['recipient_room_id'].toString()}',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.55),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (isExpanded) ...[
+                          const SizedBox(height: 12),
+                          const Divider(color: Colors.white10),
+                          const SizedBox(height: 8),
+                          _buildDetailRow('Recipient name', '${delivery['recipient_name']}'),
+                          _buildDetailRow('Delivery Type', '${delivery['delivery_type'].toString().replaceAll('_', ' ').toUpperCase()}'),
+                          _buildDetailRow('Pickup Location', '${delivery['pickup_room_name'] ?? 'Robot Charging Hub (Home)'}'),
+                          _buildDetailRow('Destination Room', '${delivery['recipient_room_name'] ?? 'Room ' + delivery['recipient_room_id'].toString()}'),
+                          _buildDetailRow('Created At', '${delivery['created_at'].toString().replaceAll('T', ' ').split('.')[0]}'),
+                          _buildDetailRow('Delivered At', delivery['delivered_at'] != null ? '${delivery['delivered_at'].toString().replaceAll('T', ' ').split('.')[0]}' : 'In Progress'),
+                        ]
+                      ],
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(status).withOpacity(0.15),
+                        border: Border.all(
+                          color: _getStatusColor(status),
+                          width: 1.5,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        status.replaceAll('_', ' ').toUpperCase(),
+                        style: TextStyle(
+                          color: _getStatusColor(status),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() {
+                        if (isExpanded) {
+                          _expandedIds.remove(deliveryId);
+                        } else {
+                          _expandedIds.add(deliveryId);
+                        }
+                      });
+                    },
+                  ),
+                );
+              }),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildActionButtons(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        ElevatedButton(
+          onPressed: () async {
+            final result = await Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const NewDeliveryScreen()),
+            );
+            if (result == true) {
+              _refreshAll();
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: kAccent,
+            foregroundColor: kNavyDark,
+            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+            elevation: 6,
+            shadowColor: kAccent.withOpacity(0.5),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.local_shipping_rounded, color: kNavyDark, size: 32),
+              SizedBox(width: 16),
+              Text(
+                'Request New Delivery',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22, letterSpacing: 0.5),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        OutlinedButton.icon(
+          onPressed: _toggleHistory,
+          icon: Icon(Icons.history_rounded, color: Colors.white.withOpacity(0.85), size: 20),
+          label: const Text(
+            'Delivery History Log',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: BorderSide(color: Colors.white.withOpacity(0.35), width: 1.5),
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            backgroundColor: kNavyMid.withOpacity(0.2),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRobotStatusCard() {
+    final active = _currentActiveDelivery;
+    final isBusy = _isRobotBusy;
+    final statusColor = isBusy ? const Color(0xFFFF8A50) : const Color(0xFF4ADE80);
+    final statusLabel = isBusy ? 'Busy — In Delivery' : 'Free';
+    final destinationRoom = active != null
+        ? (active['recipient_room_name'] ?? 'Room ${active['recipient_room_id']}')
+        : null;
+
+    return Card(
+      color: kNavyMid,
+      elevation: 6,
+      shadowColor: Colors.black.withOpacity(0.3),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: statusColor.withOpacity(0.35),
+          width: 1.5,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: _isLoadingRobotStatus
+            ? const Center(
+                child: CircularProgressIndicator(color: kAccent, strokeWidth: 2.5),
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  MouseRegion(
+                    onEnter: (_) => setState(() => _isHoveringRobot = true),
+                    onExit: (_) => setState(() => _isHoveringRobot = false),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 250),
+                      width: 320,
+                      height: 320,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _isHoveringRobot
+                                ? kAccent.withOpacity(0.45)
+                                : Colors.transparent,
+                            blurRadius: _isHoveringRobot ? 24.0 : 0.0,
+                            spreadRadius: _isHoveringRobot ? 3.0 : 0.0,
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Image.asset(
+                          'assets/images/delivery_robot.png',
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Robot Status',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: statusColor, width: 1.5),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  if (isBusy && destinationRoom != null) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.room_rounded,
+                          size: 16,
+                          color: Colors.white.withOpacity(0.45),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Delivering to $destinationRoom',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.65),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
       ),
     );
   }

@@ -1,3 +1,12 @@
+import collections
+import platform
+
+# Bypassing Windows WMI query hang in Python 3.14
+UnameResult = collections.namedtuple('UnameResult', ['system', 'node', 'release', 'version', 'machine', 'processor'])
+platform.uname = lambda: UnameResult(system="Windows", node="localhost", release="10", version="10.0.0", machine="AMD64", processor="Intel")
+platform.machine = lambda: "AMD64"
+platform.win32_ver = lambda *args, **kwargs: ("10", "10.0.0", "", "Multiprocessor Free")
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import multiprocessing
@@ -822,7 +831,21 @@ def auth_login():
         return jsonify({"error": str(e)}), 500
 
 
+
 # 2. ROOM CRUD ROUTES
+
+@app.route('/floorplan', methods=['GET'])
+def get_floorplan():
+    try:
+        from flask import send_file
+        floorplan_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'floor_plan.png')
+        if not os.path.exists(floorplan_path):
+            return jsonify({"error": "Floor plan image file not found on server"}), 404
+        return send_file(floorplan_path, mimetype='image/png')
+    except Exception as e:
+        logger.error(f"Error serving floorplan: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/rooms', methods=['GET'])
 def get_rooms():
@@ -1279,4 +1302,4 @@ def update_user(user_id):
 
 if __name__ == "__main__":
     startup_logging()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
