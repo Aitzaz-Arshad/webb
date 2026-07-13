@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
 
@@ -74,7 +73,6 @@ class _StartingScreenState extends State<StartingScreen>
     final iconAnim = _stagger(0.10, 0.55);
     final titleAnim = _stagger(0.20, 0.65);
     final taglineAnim = _stagger(0.30, 0.75);
-    final chipsAnim = _stagger(0.40, 0.85);
     final buttonAnim = _stagger(0.55, 1.0);
 
     return Scaffold(
@@ -152,29 +150,6 @@ class _StartingScreenState extends State<StartingScreen>
                             letterSpacing: 0.1,
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 34),
-                    _fadeSlide(
-                      chipsAnim,
-                      const Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          _StatusChip(
-                            icon: Icons.sensors_rounded,
-                            label: 'LoRa Linked',
-                          ),
-                          _StatusChip(
-                            icon: Icons.my_location_rounded,
-                            label: 'Live Tracking',
-                          ),
-                          _StatusChip(
-                            icon: Icons.route_rounded,
-                            label: 'Auto-Routing',
-                          ),
-                        ],
                       ),
                     ),
                     const SizedBox(height: 48),
@@ -275,40 +250,7 @@ class _RobotBadge extends StatelessWidget {
   }
 }
 
-class _StatusChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
 
-  const _StatusChip({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: kAccent),
-          const SizedBox(width: 7),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withOpacity(0.85),
-              letterSpacing: 0.2,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _StartButton extends StatelessWidget {
   final VoidCallback onPressed;

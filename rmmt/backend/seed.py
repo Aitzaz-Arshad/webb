@@ -65,50 +65,70 @@ def seed_database():
         print("Creating navigation room coordinates...")
         rooms = [
             Room(
-                name="Robot Charging Hub (Base)",
+                name="Room 1",
+                x=-14.62,
+                y=2.90,
+                theta=0.0,
+                is_robot_home=False,
+                label_x=0.15,
+                label_y=0.20,
+                region_width=0.15,
+                region_height=0.12
+            ),
+            Room(
+                name="Room 2",
+                x=-9.01,
+                y=3.19,
+                theta=0.0,
+                is_robot_home=False,
+                label_x=0.50,
+                label_y=0.20,
+                region_width=0.15,
+                region_height=0.12
+            ),
+            Room(
+                name="Room 3",
+                x=-14.22,
+                y=-1.65,
+                theta=0.0,
+                is_robot_home=False,
+                label_x=0.15,
+                label_y=0.60,
+                region_width=0.15,
+                region_height=0.12
+            ),
+            Room(
+                name="Room 4",
+                x=-8.85,
+                y=-1.91,
+                theta=0.0,
+                is_robot_home=False,
+                label_x=0.50,
+                label_y=0.60,
+                region_width=0.15,
+                region_height=0.12
+            ),
+            Room(
+                name="Robot Room",
                 x=0.0,
                 y=0.0,
                 theta=0.0,
-                is_robot_home=True
-            ),
-            Room(
-                name="FYP Lab 101",
-                x=5.2,
-                y=3.5,
-                theta=1.57,
-                is_robot_home=False
-            ),
-            Room(
-                name="Seminar Hall 202",
-                x=12.4,
-                y=-1.5,
-                theta=3.14,
-                is_robot_home=False
-            ),
-            Room(
-                name="Central Library",
-                x=-6.8,
-                y=8.1,
-                theta=-0.78,
-                is_robot_home=False
-            ),
-            Room(
-                name="Dean's Office",
-                x=-2.5,
-                y=-4.2,
-                theta=1.57,
-                is_robot_home=False
+                is_robot_home=True,
+                label_x=0.78,
+                label_y=0.40,
+                region_width=0.15,
+                region_height=0.12
             )
         ]
         db.session.add_all(rooms)
         db.session.commit()
         
         # Save ids for reference
-        home_id = rooms[0].id
-        lab_id = rooms[1].id
-        hall_id = rooms[2].id
-        library_id = rooms[3].id
-        office_id = rooms[4].id
+        room1_id = rooms[0].id
+        room2_id = rooms[1].id
+        room3_id = rooms[2].id
+        room4_id = rooms[3].id
+        robot_room_id = rooms[4].id
 
         # 4. Seed Deliveries
         print("Creating historical and active delivery logs...")
@@ -118,35 +138,43 @@ def seed_database():
         deliveries = [
             Delivery(
                 sender_id=student1_id,
-                recipient_room_id=lab_id,
+                recipient_room_id=room1_id,
                 delivery_type="home_to_room",
                 status="delivered",
                 created_at=now - timedelta(days=2),
-                delivered_at=now - timedelta(days=2, hours=23)
+                delivered_at=now - timedelta(days=2, hours=23),
+                recipient_name="Alice Johnson",
+                sender_name="Jane Doe (Student)"
             ),
             Delivery(
                 sender_id=student2_id,
-                pickup_room_id=library_id,
-                recipient_room_id=office_id,
+                pickup_room_id=room3_id,
+                recipient_room_id=room4_id,
                 delivery_type="room_to_room",
                 status="delivered",
                 created_at=now - timedelta(days=1),
-                delivered_at=now - timedelta(days=1, hours=23, minutes=30)
+                delivered_at=now - timedelta(days=1, hours=23, minutes=30),
+                recipient_name="Bob Wilson",
+                sender_name="John Smith (Faculty)"
             ),
             Delivery(
                 sender_id=student1_id,
-                recipient_room_id=hall_id,
+                recipient_room_id=room2_id,
                 delivery_type="home_to_room",
                 status="pending",
-                created_at=now - timedelta(hours=1)
+                created_at=now - timedelta(hours=1),
+                recipient_name="Charlie Brown",
+                sender_name="Jane Doe (Student)"
             ),
             Delivery(
                 sender_id=student2_id,
-                pickup_room_id=lab_id,
-                recipient_room_id=library_id,
+                pickup_room_id=room1_id,
+                recipient_room_id=room3_id,
                 delivery_type="room_to_room",
                 status="in_transit",
-                created_at=now - timedelta(minutes=15)
+                created_at=now - timedelta(minutes=15),
+                recipient_name="Diana Prince",
+                sender_name="John Smith (Faculty)"
             )
         ]
         db.session.add_all(deliveries)
@@ -159,7 +187,7 @@ def seed_database():
         print("  - User 1: student1@parcelpath.com  (Password: student123)")
         print("  - User 2: student2@parcelpath.com  (Password: student123)")
         print("  - Deactivated: deactivated@parcelpath.com (Password: test1234)")
-        print("\nDefault Rooms created: Charging Hub (Home), FYP Lab 101, Seminar Hall 202, Central Library, Dean's Office.")
+        print("\nDefault Rooms created: Room 1, Room 2, Room 3, Room 4, Robot Room.")
         print(f"Default Deliveries created: 2 completed, 1 pending, 1 in transit.")
 
 if __name__ == '__main__':

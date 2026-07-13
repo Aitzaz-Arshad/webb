@@ -1045,6 +1045,16 @@ scheduler.add_job(func=check_scheduled_deliveries, trigger="interval", minutes=1
 scheduler.start()
 
 
+def check_robot_availability():
+    """
+    Placeholder function to check robot status/availability.
+    Currently returns 'Available' (representing 'IDLE').
+    In the future, this will communicate with ROS2 and return one of:
+    'IDLE', 'DELIVERING', 'RETURNING_HOME', 'CHARGING', 'OFFLINE'.
+    """
+    return "Available"
+
+
 @app.route('/deliveries', methods=['POST'])
 def create_delivery():
     try:
@@ -1100,6 +1110,22 @@ def create_delivery():
             else:
                 is_future = scheduled_at_dt > datetime.now()
 
+        # Determine dispatch behavior
+        robot_status = "Available"
+        is_dispatched = False
+
+        if not is_future:
+            # Check availability
+            robot_avail = check_robot_availability()
+            if robot_avail in ["Available", "IDLE"]:
+                is_dispatched = True
+                robot_status = "Available"
+            else:
+                is_dispatched = False
+                robot_status = "Busy"
+        else:
+            robot_status = "Scheduled"
+
         new_delivery = Delivery(
             sender_id=sender_id,
             sender_name=sender_name,
@@ -1109,15 +1135,19 @@ def create_delivery():
             recipient_name=recipient_name,
             status='pending',
             scheduled_at=scheduled_at_dt,
-            is_dispatched=not is_future
+            is_dispatched=is_dispatched
         )
         db.session.add(new_delivery)
         db.session.commit()
 
-        if not is_future:
+        if is_dispatched:
             dispatch_delivery(new_delivery)
 
-        return jsonify({"message": "Delivery requested successfully", "delivery": new_delivery.to_dict()}), 201
+        return jsonify({
+            "message": "Delivery requested successfully", 
+            "delivery": new_delivery.to_dict(),
+            "robot_status": robot_status
+        }), 201
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error creating delivery: {e}")

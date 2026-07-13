@@ -28,7 +28,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
   String _deliveryType = 'home_to_room'; // 'home_to_room' or 'room_to_room'
   int? _selectedRecipientRoomId;
   int? _selectedPickupRoomId;
-  int? _hoveredRoomId;
+  String _mapSelectFocus = 'recipient'; // 'pickup' or 'recipient'
 
   bool _isScheduled = false;
   DateTime? _scheduledDateTime;
@@ -55,6 +55,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
       final list = await _apiService.getRooms(public: true);
       setState(() {
         _rooms = list;
+        _initPickupForHomeToRoom();
       });
     } catch (e) {
       print('Failed to load rooms: $e');
@@ -65,43 +66,205 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     }
   }
 
-  void _handleRoomTap(int roomId) {
+  void _initPickupForHomeToRoom() {
     if (_deliveryType == 'home_to_room') {
-      setState(() {
-        _selectedRecipientRoomId = roomId;
-      });
-    } else {
-      // Room-to-room selection logic
-      setState(() {
-        if (_selectedPickupRoomId == null) {
-          _selectedPickupRoomId = roomId;
-        } else if (_selectedPickupRoomId == roomId) {
-          // Deselect pickup
-          _selectedPickupRoomId = null;
-        } else if (_selectedRecipientRoomId == null) {
-          _selectedRecipientRoomId = roomId;
-        } else if (_selectedRecipientRoomId == roomId) {
-          // Deselect recipient
-          _selectedRecipientRoomId = null;
-        } else {
-          // Both selected, change recipient
-          _selectedRecipientRoomId = roomId;
-        }
-      });
+      final robotHomeMatches = _rooms.where((r) => r['is_robot_home'] == true);
+      final robotRoom = robotHomeMatches.isNotEmpty ? robotHomeMatches.first : null;
+      if (robotRoom != null) {
+        _selectedPickupRoomId = robotRoom['id'];
+      }
     }
+  }
+
+
+
+  void _clearSelection() {
+    setState(() {
+      if (_deliveryType == 'home_to_room') {
+        _initPickupForHomeToRoom();
+        _selectedRecipientRoomId = null;
+      } else {
+        _selectedPickupRoomId = null;
+        _selectedRecipientRoomId = null;
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _formKey.currentState?.validate();
     });
   }
 
-  void _clearSelection() {
-    setState(() {
-      _selectedPickupRoomId = null;
-      _selectedRecipientRoomId = null;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _formKey.currentState?.validate();
-    });
+  void _showDispatchOptionsDialog() {
+    bool localIsScheduled = false;
+    DateTime? localScheduledDateTime;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: kNavyMid,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text(
+                'Choose Delivery Option',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  RadioListTile<bool>(
+                    title: const Text('Dispatch Immediately', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    subtitle: const Text('Send the robot on delivery right now', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    value: false,
+                    groupValue: localIsScheduled,
+                    activeColor: kAccent,
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        localIsScheduled = val!;
+                      });
+                    },
+                  ),
+                  RadioListTile<bool>(
+                    title: const Text('Schedule for Later', style: TextStyle(color: Colors.white, fontSize: 14)),
+                    subtitle: const Text('Pick a specific future date and time', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    value: true,
+                    groupValue: localIsScheduled,
+                    activeColor: kAccent,
+                    contentPadding: EdgeInsets.zero,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        localIsScheduled = val!;
+                      });
+                    },
+                  ),
+                  if (localIsScheduled) ...[
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white24),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          backgroundColor: kNavyDark,
+                        ),
+                        icon: const Icon(Icons.date_range_rounded, color: kAccent, size: 18),
+                        label: Text(
+                          localScheduledDateTime == null
+                              ? 'Select Date & Time'
+                              : localScheduledDateTime.toString().split('.')[0],
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        onPressed: () async {
+                          final date = await showDatePicker(
+                            context: context,
+                            initialDate: DateTime.now().add(const Duration(minutes: 5)),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(const Duration(days: 30)),
+                            builder: (context, child) {
+                              return Theme(
+                                data: Theme.of(context).copyWith(
+                                  colorScheme: const ColorScheme.dark(
+                                    primary: kAccent,
+                                    onPrimary: kNavyDark,
+                                    surface: kNavyMid,
+                                    onSurface: Colors.white,
+                                  ),
+                                ),
+                                child: child!,
+                              );
+                            },
+                          );
+                          if (date == null) return;
+                          
+                          if (!context.mounted) return;
+                          final time = await showTimePicker(
+                            context: context,
+                            initialTime: TimeOfDay.fromDateTime(DateTime.now().add(const Duration(minutes: 5))),
+                            builder: (context, child) {
+                              return Theme(
+                                data: Theme.of(context).copyWith(
+                                  colorScheme: const ColorScheme.dark(
+                                    primary: kAccent,
+                                    onPrimary: kNavyDark,
+                                    surface: kNavyMid,
+                                    onSurface: Colors.white,
+                                  ),
+                                ),
+                                child: child!,
+                              );
+                            },
+                          );
+                          if (time == null) return;
+                          
+                          setDialogState(() {
+                            localScheduledDateTime = DateTime(
+                              date.year,
+                              date.month,
+                              date.day,
+                              time.hour,
+                              time.minute,
+                            );
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kAccent,
+                    foregroundColor: kNavyDark,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    // Validation for Scheduled option
+                    if (localIsScheduled && localScheduledDateTime == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Please select a scheduled date and time.'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                      return;
+                    }
+                    if (localIsScheduled && localScheduledDateTime!.isBefore(DateTime.now())) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Scheduled time must be in the future.'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Save state and submit
+                    setState(() {
+                      _isScheduled = localIsScheduled;
+                      _scheduledDateTime = localScheduledDateTime;
+                    });
+                    
+                    Navigator.of(context).pop(); // Close dialog
+                    _submit(); // Trigger submit
+                  },
+                  child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _submit() async {
@@ -156,7 +319,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     });
 
     try {
-      await _apiService.createDelivery(
+      final response = await _apiService.createDelivery(
         auth.userId!,
         _selectedRecipientRoomId!,
         _deliveryType == 'room_to_room' ? _selectedPickupRoomId : null,
@@ -166,13 +329,21 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
       );
 
       if (mounted) {
-        final confirmMessage = _isScheduled
-            ? 'Delivery scheduled for ${_scheduledDateTime.toString().split('.')[0]}!'
-            : 'Delivery request submitted successfully!';
+        String confirmMessage = 'Delivery request submitted successfully!';
+        final robotStatus = response['robot_status'] as String?;
+        if (_isScheduled || robotStatus == 'Scheduled') {
+          confirmMessage = 'Your delivery has been scheduled successfully.';
+        } else if (robotStatus == 'Available') {
+          confirmMessage = 'Robot is available. Your delivery will begin immediately.';
+        } else if (robotStatus == 'Busy') {
+          confirmMessage = 'Robot is currently completing another delivery. Your request has been added to the queue. It will start automatically when the robot becomes available.';
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(confirmMessage),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
           ),
         );
         Navigator.of(context).pop(true);
@@ -196,8 +367,8 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    // Filter rooms for interactive display (Robot Home is never selectable/glowing)
-    final interactiveRooms = _rooms.where((r) => r['is_robot_home'] == false).toList();
+    // Include all rooms (including Robot Room)
+    final interactiveRooms = _rooms;
     
     return Scaffold(
       backgroundColor: kNavyDark,
@@ -245,44 +416,45 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                           ),
                           const SizedBox(height: 12),
                           Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final parentW = constraints.maxWidth;
-                                final parentH = constraints.maxHeight;
+                            child: Center(
+                              child: AspectRatio(
+                                aspectRatio: 682 / 1024,
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final parentW = constraints.maxWidth;
+                                    final parentH = constraints.maxHeight;
 
-                                return Stack(
-                                  children: [
-                                    // Floor plan image (network-fetched with bounded layout)
-                                    Positioned.fill(
-                                      child: SizedBox(
-                                        width: parentW,
-                                        height: parentH,
-                                        child: Image.network(
-                                          '${_apiService.baseUrl}/floorplan',
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (context, error, stackTrace) {
-                                            return const Center(
-                                              child: Text(
-                                                'Failed to load floor plan from server',
-                                                style: TextStyle(color: Colors.redAccent, fontSize: 13),
-                                              ),
-                                            );
-                                          },
-                                          loadingBuilder: (context, child, loadingProgress) {
-                                            if (loadingProgress == null) return child;
-                                            return const Center(
-                                              child: CircularProgressIndicator(color: kAccent),
-                                            );
-                                          },
+                                    return Stack(
+                                      children: [
+                                        // Floor plan image (network-fetched with bounded layout)
+                                        Positioned.fill(
+                                          child: Image.network(
+                                            '${_apiService.baseUrl}/floorplan',
+                                            fit: BoxFit.fill,
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return const Center(
+                                                child: Text(
+                                                  'Failed to load floor plan from server',
+                                                  style: TextStyle(color: Colors.redAccent, fontSize: 13),
+                                                ),
+                                              );
+                                            },
+                                            loadingBuilder: (context, child, loadingProgress) {
+                                              if (loadingProgress == null) return child;
+                                              return const Center(
+                                                child: CircularProgressIndicator(color: kAccent),
+                                              );
+                                            },
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                    // Overlaid interactive room regions (excluding home)
-                                    for (var room in interactiveRooms)
-                                      _buildInteractiveRoomOverlay(room, parentW, parentH),
-                                  ],
-                                );
-                              },
+                                        // Overlaid interactive room regions
+                                        for (var room in interactiveRooms)
+                                          _buildInteractiveRoomOverlay(room, parentW, parentH),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -415,6 +587,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                       if (selected) {
                                         setState(() {
                                           _deliveryType = 'home_to_room';
+                                          _mapSelectFocus = 'recipient';
                                           _clearSelection();
                                         });
                                       }
@@ -437,6 +610,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                       if (selected) {
                                         setState(() {
                                           _deliveryType = 'room_to_room';
+                                          _mapSelectFocus = 'pickup';
                                           _clearSelection();
                                         });
                                       }
@@ -465,7 +639,10 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                   fillColor: kNavyDark,
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                   enabledBorder: OutlineInputBorder(
-                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderSide: BorderSide(
+                                      color: _mapSelectFocus == 'recipient' ? Colors.redAccent : Colors.white10,
+                                      width: _mapSelectFocus == 'recipient' ? 2.0 : 1.0,
+                                    ),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   focusedBorder: OutlineInputBorder(
@@ -481,7 +658,12 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
+                                onTap: () {
+                                  setState(() {
+                                    _mapSelectFocus = 'recipient';
+                                  });
+                                },
+                                items: interactiveRooms.where((r) => r['is_robot_home'] == false).map<DropdownMenuItem<int>>((room) {
                                   return DropdownMenuItem<int>(
                                     value: room['id'] as int,
                                     child: Text(room['name'] as String),
@@ -490,6 +672,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                 onChanged: (int? newValue) {
                                   setState(() {
                                     _selectedRecipientRoomId = newValue;
+                                    _mapSelectFocus = 'recipient';
                                   });
                                   _formKey.currentState?.validate();
                                 },
@@ -518,7 +701,10 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                   fillColor: kNavyDark,
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                   enabledBorder: OutlineInputBorder(
-                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderSide: BorderSide(
+                                      color: _mapSelectFocus == 'pickup' ? Colors.green : Colors.white10,
+                                      width: _mapSelectFocus == 'pickup' ? 2.0 : 1.0,
+                                    ),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   focusedBorder: OutlineInputBorder(
@@ -534,6 +720,11 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
+                                onTap: () {
+                                  setState(() {
+                                    _mapSelectFocus = 'pickup';
+                                  });
+                                },
                                 items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
                                   return DropdownMenuItem<int>(
                                     value: room['id'] as int,
@@ -543,6 +734,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                 onChanged: (int? newValue) {
                                   setState(() {
                                     _selectedPickupRoomId = newValue;
+                                    _mapSelectFocus = 'pickup';
                                   });
                                   _formKey.currentState?.validate();
                                 },
@@ -573,7 +765,10 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                   fillColor: kNavyDark,
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                                   enabledBorder: OutlineInputBorder(
-                                    borderSide: const BorderSide(color: Colors.white10),
+                                    borderSide: BorderSide(
+                                      color: _mapSelectFocus == 'recipient' ? Colors.redAccent : Colors.white10,
+                                      width: _mapSelectFocus == 'recipient' ? 2.0 : 1.0,
+                                    ),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   focusedBorder: OutlineInputBorder(
@@ -589,7 +784,12 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                 ),
-                                items: interactiveRooms.map<DropdownMenuItem<int>>((room) {
+                                onTap: () {
+                                  setState(() {
+                                    _mapSelectFocus = 'recipient';
+                                  });
+                                },
+                                items: interactiveRooms.where((r) => r['is_robot_home'] == false).map<DropdownMenuItem<int>>((room) {
                                   return DropdownMenuItem<int>(
                                     value: room['id'] as int,
                                     child: Text(room['name'] as String),
@@ -598,6 +798,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                                 onChanged: (int? newValue) {
                                   setState(() {
                                     _selectedRecipientRoomId = newValue;
+                                    _mapSelectFocus = 'recipient';
                                   });
                                   _formKey.currentState?.validate();
                                 },
@@ -636,159 +837,10 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // Scheduling Section
-                            const Text(
-                              'Delivery Schedule',
-                              style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ChoiceChip(
-                                    label: const Center(
-                                      child: Text('Start Now'),
-                                    ),
-                                    selected: !_isScheduled,
-                                    selectedColor: kAccent,
-                                    backgroundColor: kNavyDark,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    labelStyle: TextStyle(
-                                      color: !_isScheduled ? kNavyDark : Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      side: BorderSide(
-                                        color: !_isScheduled ? Colors.transparent : Colors.white24,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    showCheckmark: true,
-                                    onSelected: (selected) {
-                                      if (selected) {
-                                        setState(() {
-                                          _isScheduled = false;
-                                          _scheduledDateTime = null;
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  width: 200,
-                                  child: ChoiceChip(
-                                    label: const Center(
-                                      child: Text('Send Later'),
-                                    ),
-                                    selected: _isScheduled,
-                                    selectedColor: kAccent,
-                                    backgroundColor: kNavyDark,
-                                    padding: const EdgeInsets.symmetric(vertical: 10),
-                                    labelStyle: TextStyle(
-                                      color: _isScheduled ? kNavyDark : Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      side: BorderSide(
-                                        color: _isScheduled ? Colors.transparent : Colors.white24,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    showCheckmark: true,
-                                    onSelected: (selected) {
-                                      if (selected) {
-                                        setState(() {
-                                          _isScheduled = true;
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (_isScheduled) ...[
-                              const SizedBox(height: 16),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white10),
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  backgroundColor: kNavyDark,
-                                ),
-                                icon: const Icon(Icons.date_range_rounded, color: kAccent, size: 20),
-                                label: Text(
-                                  _scheduledDateTime == null
-                                      ? 'Select Date & Time'
-                                      : _scheduledDateTime.toString().split('.')[0],
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                                onPressed: () async {
-                                  final date = await showDatePicker(
-                                    context: context,
-                                    initialDate: DateTime.now().add(const Duration(minutes: 5)),
-                                    firstDate: DateTime.now(),
-                                    lastDate: DateTime.now().add(const Duration(days: 30)),
-                                    builder: (context, child) {
-                                      return Theme(
-                                        data: Theme.of(context).copyWith(
-                                          colorScheme: const ColorScheme.dark(
-                                            primary: kAccent,
-                                            onPrimary: kNavyDark,
-                                            surface: kNavyMid,
-                                            onSurface: Colors.white,
-                                          ),
-                                        ),
-                                        child: child!,
-                                      );
-                                    },
-                                  );
-                                  if (date == null) return;
-                                  
-                                  if (!mounted) return;
-                                  final time = await showTimePicker(
-                                    context: context,
-                                    initialTime: TimeOfDay.fromDateTime(DateTime.now().add(const Duration(minutes: 5))),
-                                    builder: (context, child) {
-                                      return Theme(
-                                        data: Theme.of(context).copyWith(
-                                          colorScheme: const ColorScheme.dark(
-                                            primary: kAccent,
-                                            onPrimary: kNavyDark,
-                                            surface: kNavyMid,
-                                            onSurface: Colors.white,
-                                          ),
-                                        ),
-                                        child: child!,
-                                      );
-                                    },
-                                  );
-                                  if (time == null) return;
-                                  
-                                  setState(() {
-                                    _scheduledDateTime = DateTime(
-                                      date.year,
-                                      date.month,
-                                      date.day,
-                                      time.hour,
-                                      time.minute,
-                                    );
-                                  });
-                                },
-                              ),
-                            ],
-                            const SizedBox(height: 48),
-
+                            const SizedBox(height: 32),
                             // Submit Button
                             ElevatedButton.icon(
-                              onPressed: _isSubmitting || !_isSelectionComplete() ? null : _submit,
+                              onPressed: _isSubmitting || !_isSelectionComplete() ? null : _showDispatchOptionsDialog,
                               icon: _isSubmitting 
                                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kNavyDark))
                                   : const Icon(Icons.local_shipping_rounded),
@@ -813,9 +865,20 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     );
   }
 
+  Color _getRoomColor(Map<String, dynamic> room) {
+    final bool isHome = room['is_robot_home'] == true;
+    final String name = (room['name'] ?? '').toString().toLowerCase();
+    if (isHome || name.contains('robot')) {
+      return Colors.blue;
+    } else if (name.contains('1') || name.contains('3')) {
+      return Colors.amber; // Yellow
+    } else if (name.contains('2') || name.contains('4') || name.contains('5')) {
+      return Colors.green;
+    }
+    return kAccent;
+  }
+
   Widget _buildInteractiveRoomOverlay(Map<String, dynamic> room, double parentWidth, double parentHeight) {
-    final int roomId = room['id'] as int;
-    
     // Check if room coordinates exist
     final double? labelX = room['label_x'] != null ? (room['label_x'] as num).toDouble() : null;
     final double? labelY = room['label_y'] != null ? (room['label_y'] as num).toDouble() : null;
@@ -832,27 +895,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     final double width = regW * parentWidth;
     final double height = regH * parentHeight;
 
-    final bool isPickup = _selectedPickupRoomId == roomId;
-    final bool isRecipient = _selectedRecipientRoomId == roomId;
-    final bool isHovered = _hoveredRoomId == roomId;
-
-    Color highlightColor = Colors.transparent;
-    Color borderColor = Colors.white12;
-    double borderWidth = 1.0;
-
-    if (isPickup) {
-      highlightColor = Colors.green.withOpacity(0.24);
-      borderColor = Colors.green;
-      borderWidth = 2.0;
-    } else if (isRecipient) {
-      highlightColor = Colors.redAccent.withOpacity(0.24);
-      borderColor = Colors.redAccent;
-      borderWidth = 2.0;
-    } else if (isHovered) {
-      highlightColor = kAccent.withOpacity(0.18);
-      borderColor = kAccent;
-      borderWidth = 1.5;
-    }
+    final Color roomColor = _getRoomColor(room);
 
     return Positioned(
       left: left,
@@ -860,73 +903,39 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
       width: width,
       height: height,
       child: MouseRegion(
-        onEnter: (_) => setState(() => _hoveredRoomId = roomId),
-        onExit: (_) => setState(() => _hoveredRoomId = null),
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: () {
-            // Prevent choosing same room twice
-            if (_deliveryType == 'room_to_room') {
-              if (_selectedPickupRoomId == roomId && _selectedRecipientRoomId != null) {
-                // Deselect pickup
-                _handleRoomTap(roomId);
-              } else if (_selectedPickupRoomId != null && _selectedPickupRoomId != roomId) {
-                // Tapping destination
-                _handleRoomTap(roomId);
-              } else if (_selectedPickupRoomId == null) {
-                // Tapping pickup
-                _handleRoomTap(roomId);
-              } else {
-                // Prevent duplicate
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Pickup and Destination rooms cannot be the same!')),
-                );
-              }
-            } else {
-              _handleRoomTap(roomId);
-            }
+            // The floor map is display-only. Tapping has no effect on selections.
           },
           child: Container(
             decoration: BoxDecoration(
-              color: highlightColor,
-              border: Border.all(color: borderColor, width: borderWidth),
+              color: roomColor.withOpacity(0.35),
+              border: Border.all(color: roomColor, width: 1.5),
               borderRadius: BorderRadius.circular(6),
-              boxShadow: (isHovered || isPickup || isRecipient) 
-                  ? [
-                      BoxShadow(
-                        color: borderColor.withOpacity(0.2),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      )
-                    ]
-                  : null,
+              boxShadow: [
+                BoxShadow(
+                  color: roomColor.withOpacity(0.4),
+                  blurRadius: 8,
+                  spreadRadius: 2,
+                )
+              ],
             ),
-            child: Stack(
-              children: [
-                Center(
-                  child: Text(
-                    room['name'],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: (isHovered || isPickup || isRecipient) ? Colors.white : Colors.white70,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                    ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Text(
+                  room['name'],
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
                   ),
                 ),
-                if (isPickup)
-                  const Positioned(
-                    bottom: 2,
-                    left: 2,
-                    child: Text('PICKUP', style: TextStyle(color: Colors.green, fontSize: 8, fontWeight: FontWeight.bold)),
-                  ),
-                if (isRecipient)
-                  const Positioned(
-                    bottom: 2,
-                    left: 2,
-                    child: Text('DEST', style: TextStyle(color: Colors.redAccent, fontSize: 8, fontWeight: FontWeight.bold)),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
@@ -943,19 +952,20 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
             SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Pickup from Robot Home is active. Tap a room on the floor plan to select it as the Destination.',
+                'Pickup from Robot Room is active. Select the destination room from the dropdown menu.',
                 style: TextStyle(color: Colors.white70, fontSize: 12.5),
               ),
             ),
           ],
         );
       } else {
-        final destRoom = _rooms.firstWhere((r) => r['id'] == _selectedRecipientRoomId, orElse: () => null);
+        final destMatches = _rooms.where((r) => r['id'] == _selectedRecipientRoomId);
+        final destRoom = destMatches.isNotEmpty ? destMatches.first : null;
         final destName = destRoom != null ? destRoom['name'] : 'Room';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildStatusLine('Pickup', 'Robot Charging Hub (Home)', Colors.purpleAccent),
+            _buildStatusLine('Pickup', 'Robot Room', Colors.blue),
             const SizedBox(height: 8),
             _buildStatusLine('Deliver to', destName, Colors.redAccent),
           ],
@@ -966,18 +976,19 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
       if (_selectedPickupRoomId == null) {
         return const Row(
           children: [
-            Icon(Icons.touch_app_rounded, color: Colors.green, size: 16),
+            Icon(Icons.info_outline_rounded, color: Colors.green, size: 16),
             SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Tap a room on the floor plan to select it as the Pickup point.',
+                'Select a pickup room from the dropdown menu.',
                 style: TextStyle(color: Colors.white70, fontSize: 12.5),
               ),
             ),
           ],
         );
       } else if (_selectedRecipientRoomId == null) {
-        final pickupRoom = _rooms.firstWhere((r) => r['id'] == _selectedPickupRoomId, orElse: () => null);
+        final pickupMatches = _rooms.where((r) => r['id'] == _selectedPickupRoomId);
+        final pickupRoom = pickupMatches.isNotEmpty ? pickupMatches.first : null;
         final pickupName = pickupRoom != null ? pickupRoom['name'] : 'Room';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -986,11 +997,11 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
             const SizedBox(height: 12),
             const Row(
               children: [
-                Icon(Icons.touch_app_rounded, color: Colors.redAccent, size: 16),
+                Icon(Icons.info_outline_rounded, color: Colors.redAccent, size: 16),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Tap another room on the map to select the Destination.',
+                    'Select the destination room from the dropdown menu.',
                     style: TextStyle(color: Colors.white70, fontSize: 12.5),
                   ),
                 ),
@@ -999,9 +1010,11 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
           ],
         );
       } else {
-        final pickupRoom = _rooms.firstWhere((r) => r['id'] == _selectedPickupRoomId, orElse: () => null);
+        final pickupMatches = _rooms.where((r) => r['id'] == _selectedPickupRoomId);
+        final pickupRoom = pickupMatches.isNotEmpty ? pickupMatches.first : null;
         final pickupName = pickupRoom != null ? pickupRoom['name'] : 'Room';
-        final destRoom = _rooms.firstWhere((r) => r['id'] == _selectedRecipientRoomId, orElse: () => null);
+        final destMatches = _rooms.where((r) => r['id'] == _selectedRecipientRoomId);
+        final destRoom = destMatches.isNotEmpty ? destMatches.first : null;
         final destName = destRoom != null ? destRoom['name'] : 'Room';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

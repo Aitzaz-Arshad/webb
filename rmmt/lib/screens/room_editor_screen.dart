@@ -68,10 +68,8 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
 
         // Keep selection updated if it exists
         if (_selectedRoom != null) {
-          final found = _rooms.firstWhere(
-            (r) => r['id'] == _selectedRoom!['id'],
-            orElse: () => null,
-          );
+          final foundMatches = _rooms.where((r) => r['id'] == _selectedRoom!['id']);
+          final found = foundMatches.isNotEmpty ? foundMatches.first : null;
           if (found != null) {
             _selectRoom(found);
           } else {
@@ -180,30 +178,34 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.white10),
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final parentW = constraints.maxWidth;
-                        final parentH = constraints.maxHeight;
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 682 / 1024,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final parentW = constraints.maxWidth;
+                            final parentH = constraints.maxHeight;
 
-                        return Stack(
-                          children: [
-                            // Base Floor Plan Image
-                            Positioned.fill(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Image.asset(
-                                  'assets/images/floor_plan.png',
-                                  fit: BoxFit.contain,
+                            return Stack(
+                              children: [
+                                // Base Floor Plan Image
+                                Positioned.fill(
+                                  child: Image.asset(
+                                    'assets/images/floor_plan.png',
+                                    fit: BoxFit.fill,
+                                  ),
                                 ),
-                              ),
-                            ),
-                            // Overlaid interactive room boxes
-                            for (var room in _rooms)
-                              _buildRoomOverlay(room, parentW, parentH),
-                          ],
-                        );
-                      },
+                                // Overlaid interactive room boxes
+                                for (var room in _rooms)
+                                  _buildRoomOverlay(room, parentW, parentH),
+                                // Floating inline edit card
+                                if (_selectedRoom != null)
+                                  _buildInlineEditCard(_selectedRoom!, parentW, parentH),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -219,12 +221,60 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                       border: Border.all(color: Colors.white10),
                     ),
                     child: _selectedRoom == null
-                        ? Center(
-                            child: Text(
-                              'Select a room on the floor plan to edit its layout geometry and navigation coordinates.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 16),
-                            ),
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 12.0),
+                                child: Text(
+                                  'Floor Plan Rooms Map',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                'Select a room on the map to edit. Below is the list of all registered rooms and their coordinates.',
+                                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13),
+                              ),
+                              const Divider(color: Colors.white24, height: 24),
+                              Expanded(
+                                child: _rooms.isEmpty
+                                    ? Center(
+                                        child: Text(
+                                          'No rooms found. Seed the database to load default rooms.',
+                                          style: TextStyle(color: Colors.white.withOpacity(0.3)),
+                                        ),
+                                      )
+                                    : ListView.separated(
+                                        itemCount: _rooms.length,
+                                        separatorBuilder: (context, index) => const Divider(color: Colors.white10, height: 1),
+                                        itemBuilder: (context, index) {
+                                          final room = _rooms[index];
+                                          final isHome = room['is_robot_home'] as bool;
+                                          return ListTile(
+                                            contentPadding: EdgeInsets.zero,
+                                            leading: Icon(
+                                              isHome ? Icons.precision_manufacturing_outlined : Icons.location_on_rounded,
+                                              color: isHome ? Colors.blue : kAccent,
+                                            ),
+                                            title: Text(
+                                              room['name'],
+                                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                            ),
+                                            subtitle: Text(
+                                              'ROS Nav: X: ${room['x'].toStringAsFixed(2)}m, Y: ${room['y'].toStringAsFixed(2)}m',
+                                              style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                                            ),
+                                            trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white30),
+                                            onTap: () => _selectRoom(room),
+                                          );
+                                        },
+                                      ),
+                              ),
+                            ],
                           )
                         : SingleChildScrollView(
                             child: Column(
@@ -234,10 +284,10 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                   children: [
                                     Icon(
                                       _selectedRoom!['is_robot_home']
-                                          ? Icons.home_rounded
+                                          ? Icons.precision_manufacturing_outlined
                                           : Icons.room_rounded,
                                       color: _selectedRoom!['is_robot_home']
-                                          ? Colors.purpleAccent
+                                          ? Colors.blue
                                           : kAccent,
                                       size: 28,
                                     ),
@@ -245,8 +295,8 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                     Expanded(
                                       child: Text(
                                         _selectedRoom!['is_robot_home']
-                                            ? 'Robot Home Base'
-                                            : 'Room Configuration',
+                                            ? 'Robot Room Info'
+                                            : 'Room Information',
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 20,
@@ -254,30 +304,40 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                         ),
                                       ),
                                     ),
+                                    IconButton(
+                                      icon: const Icon(Icons.close, color: Colors.white54),
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedRoom = null;
+                                        });
+                                      },
+                                    ),
                                   ],
                                 ),
                                 const Divider(color: Colors.white24, height: 32),
                                 
-                                // Room Display Name
-                                const Text('Room Display Name', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 8),
-                                TextField(
-                                  controller: _nameController,
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: InputDecoration(
-                                    filled: true,
-                                    fillColor: kNavyDark,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                                    hintText: 'e.g. Robotics Lab 101',
+                                // Display-only Room attributes
+                                const Text('Room Display Name', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: kNavyDark,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.white10),
+                                  ),
+                                  child: Text(
+                                    _selectedRoom!['name'],
+                                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
                                   ),
                                 ),
-                                const SizedBox(height: 24),
+                                const SizedBox(height: 20),
 
                                 // Drag & Size Percentages Info/Sliders
-                                const Text('Floor Plan Layout Adjustments', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                                const Text('Visual Layout Settings (Map Only)', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Reposition by dragging the room box on the map. Adjust region dimensions below:',
+                                  'Adjust the size of the room boundary box drawn on the floor plan map:',
                                   style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
                                 ),
                                 const SizedBox(height: 12),
@@ -311,9 +371,25 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                     });
                                   },
                                 ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _saveChanges,
+                                    icon: const Icon(Icons.save_rounded, size: 18),
+                                    label: const Text('Save Position & Size'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: kAccent,
+                                      foregroundColor: kNavyDark,
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ),
+                                ),
                                 const SizedBox(height: 24),
 
-                                // Robot Navigation Coordinates
+                                // Robot Navigation Coordinates (Display Only)
                                 Container(
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
@@ -326,53 +402,57 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                     children: [
                                       const Row(
                                         children: [
-                                          Icon(Icons.precision_manufacturing_outlined, color: Colors.amber, size: 20),
+                                          Icon(Icons.precision_manufacturing_outlined, color: Colors.blueAccent, size: 20),
                                           SizedBox(width: 8),
                                           Text(
-                                            'Robot Navigation Coordinates',
+                                            'ROS Navigation coordinates',
                                             style: TextStyle(
-                                              color: Colors.amber,
+                                              color: Colors.blueAccent,
                                               fontWeight: FontWeight.bold,
                                               fontSize: 14,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 4),
-                                      const Text(
-                                        '(Used internally by ROS2 Nav2 — not shown to users)',
-                                        style: TextStyle(color: Colors.white38, fontSize: 11),
-                                      ),
                                       const SizedBox(height: 16),
                                       Row(
                                         children: [
                                           Expanded(
-                                            child: _buildCoordinateField(label: 'Nav X (meters)', controller: _xController),
+                                            child: _buildStaticCoordTile('X (meters)', _selectedRoom!['x'].toString()),
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
-                                            child: _buildCoordinateField(label: 'Nav Y (meters)', controller: _yController),
+                                            child: _buildStaticCoordTile('Y (meters)', _selectedRoom!['y'].toString()),
                                           ),
                                         ],
                                       ),
                                       const SizedBox(height: 12),
-                                      _buildCoordinateField(label: 'Nav Theta (radians)', controller: _thetaController),
+                                      _buildStaticCoordTile('Theta (radians)', _selectedRoom!['theta'].toString()),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(height: 32),
-
-                                // Save Changes Button
-                                ElevatedButton.icon(
-                                  onPressed: _saveChanges,
-                                  icon: const Icon(Icons.save_rounded),
-                                  label: const Text('Save Configuration'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kAccent,
-                                    foregroundColor: kNavyDark,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                const SizedBox(height: 24),
+                                
+                                // Informative text pointing to map
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withOpacity(0.1),
+                                    border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.info_outline_rounded, color: Colors.amber, size: 18),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'To edit the room name or ROS navigation coordinates, use the inline card overlay directly on the floor plan map.',
+                                          style: TextStyle(color: Colors.amber.shade200, fontSize: 12.5, height: 1.3),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -385,14 +465,28 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
     );
   }
 
+  Color _getRoomColor(Map<String, dynamic> room) {
+    final bool isHome = room['is_robot_home'] == true;
+    final String name = (room['name'] ?? '').toString().toLowerCase();
+    if (isHome || name.contains('robot')) {
+      return Colors.blue;
+    } else if (name.contains('1') || name.contains('3')) {
+      return Colors.amber; // Yellow
+    } else if (name.contains('2') || name.contains('4') || name.contains('5')) {
+      return Colors.green;
+    }
+    return kAccent;
+  }
+
   Widget _buildRoomOverlay(Map<String, dynamic> room, double parentWidth, double parentHeight) {
     final bool isSelected = _selectedRoom != null && _selectedRoom!['id'] == room['id'];
-    final bool isHome = room['is_robot_home'] as bool;
     
     final double left = (room['label_x'] as double) * parentWidth;
     final double top = (room['label_y'] as double) * parentHeight;
     final double width = (room['region_width'] as double) * parentWidth;
     final double height = (room['region_height'] as double) * parentHeight;
+
+    final Color roomColor = _getRoomColor(room);
 
     return Positioned(
       left: left,
@@ -426,41 +520,249 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
           cursor: SystemMouseCursors.move,
           child: Container(
             decoration: BoxDecoration(
-              color: isSelected 
-                  ? kAccent.withOpacity(0.35) 
-                  : (isHome ? Colors.purpleAccent.withOpacity(0.18) : kAccent.withOpacity(0.12)),
+              color: roomColor.withOpacity(0.35),
               border: Border.all(
-                color: isSelected 
-                    ? kAccent 
-                    : (isHome ? Colors.purpleAccent : Colors.white24),
+                color: isSelected ? kAccent : roomColor,
                 width: isSelected ? 2.5 : 1.5,
               ),
               borderRadius: BorderRadius.circular(6),
-            ),
-            child: Stack(
-              children: [
-                Center(
-                  child: Text(
-                    room['name'],
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: isSelected ? Colors.white : Colors.white70,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 2,
-                  right: 2,
-                  child: Icon(
-                    isHome ? Icons.home_rounded : Icons.location_on_rounded,
-                    color: isHome ? Colors.purpleAccent : Colors.white30,
-                    size: 14,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: (isSelected ? kAccent : roomColor).withOpacity(0.4),
+                  blurRadius: 8,
+                  spreadRadius: 2,
                 )
               ],
             ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Text(
+                  room['name'],
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineEditCard(Map<String, dynamic> room, double parentWidth, double parentHeight) {
+    final double left = (room['label_x'] as double) * parentWidth;
+    final double top = (room['label_y'] as double) * parentHeight;
+    final double width = (room['region_width'] as double) * parentWidth;
+    final double height = (room['region_height'] as double) * parentHeight;
+
+    const double cardWidth = 260.0;
+    const double cardHeight = 240.0;
+
+    double cardLeft = left + (width / 2) - (cardWidth / 2);
+    double cardTop = top - cardHeight - 10.0;
+
+    if (cardTop < 10.0) {
+      cardTop = top + height + 10.0;
+    }
+
+    cardLeft = cardLeft.clamp(10.0, parentWidth - cardWidth - 10.0);
+    cardTop = cardTop.clamp(10.0, parentHeight - cardHeight - 10.0);
+
+    return Positioned(
+      left: cardLeft,
+      top: cardTop,
+      width: cardWidth,
+      height: cardHeight,
+      child: Material(
+        elevation: 12,
+        borderRadius: BorderRadius.circular(12),
+        color: kNavyMid,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: kAccent, width: 2.0),
+            boxShadow: [
+              BoxShadow(
+                color: kAccent.withOpacity(0.15),
+                blurRadius: 12,
+                spreadRadius: 2,
+              )
+            ],
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.edit_location_alt_rounded, color: kAccent, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Edit Room Config',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white54, size: 16),
+                    onPressed: () {
+                      setState(() {
+                        _selectedRoom = null;
+                      });
+                    },
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  )
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text('Room Name', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 36,
+                child: TextField(
+                  controller: _nameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                    filled: true,
+                    fillColor: kNavyDark,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: Colors.white24),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: const BorderSide(color: kAccent, width: 1.5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Nav X (m)', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          height: 36,
+                          child: TextField(
+                            controller: _xController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                              filled: true,
+                              fillColor: kNavyDark,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Colors.white24),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: kAccent, width: 1.5),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Nav Y (m)', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          height: 36,
+                          child: TextField(
+                            controller: _yController,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                              filled: true,
+                              fillColor: kNavyDark,
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Colors.white24),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: kAccent, width: 1.5),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  SizedBox(
+                    height: 32,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.white30),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _nameController.text = room['name'];
+                          _xController.text = room['x'].toString();
+                          _yController.text = room['y'].toString();
+                          _thetaController.text = room['theta'].toString();
+                          _selectedRoom = null;
+                        });
+                      },
+                      child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 32,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kAccent,
+                        foregroundColor: kNavyDark,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      onPressed: _saveChanges,
+                      child: const Text('Save', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ),
+                ],
+              )
+            ],
           ),
         ),
       ),
@@ -500,22 +802,25 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
     );
   }
 
-  Widget _buildCoordinateField({required String label, required TextEditingController controller}) {
+
+
+  Widget _buildStaticCoordTile(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 12)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
-          style: const TextStyle(color: Colors.white, fontSize: 13),
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: kNavyDark,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11)),
+        const SizedBox(height: 4),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: kNavyDark,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Text(
+            value,
+            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
           ),
         ),
       ],
