@@ -1,5 +1,6 @@
 // lib/screens/user_dashboard_screen.dart
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:path_planning/providers/auth_provider.dart';
@@ -24,11 +25,22 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
   List<dynamic> _activeDeliveries = [];
   bool _isLoadingRobotStatus = false;
   bool _isHoveringRobot = false;
+  
+  String _robotStatus = 'free';
+  Map<String, dynamic>? _currentRobotOrder;
+  Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
     _loadRobotStatus();
+    _statusTimer = Timer.periodic(const Duration(seconds: 4), (_) => _loadRobotStatusSilent());
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadRobotStatus() async {
@@ -45,8 +57,15 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
         final id = delivery['id'] as int;
         if (seen.add(id)) active.add(delivery);
       }
+
+      final statusResponse = await _apiService.getRobotStatus();
+      final status = statusResponse['status'] ?? 'free';
+      final currentOrder = statusResponse['current_order'] as Map<String, dynamic>?;
+
       setState(() {
         _activeDeliveries = active;
+        _robotStatus = status;
+        _currentRobotOrder = currentOrder;
       });
     } catch (e) {
       print('Error loading robot status: $e');
@@ -54,6 +73,33 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       setState(() {
         _isLoadingRobotStatus = false;
       });
+    }
+  }
+
+  Future<void> _loadRobotStatusSilent() async {
+    try {
+      final inTransit = await _apiService.getDeliveries(status: 'in_transit');
+      final pickedUp = await _apiService.getDeliveries(status: 'picked_up');
+      final seen = <int>{};
+      final active = <dynamic>[];
+      for (final delivery in [...inTransit, ...pickedUp]) {
+        final id = delivery['id'] as int;
+        if (seen.add(id)) active.add(delivery);
+      }
+
+      final statusResponse = await _apiService.getRobotStatus();
+      final status = statusResponse['status'] ?? 'free';
+      final currentOrder = statusResponse['current_order'] as Map<String, dynamic>?;
+
+      if (mounted) {
+        setState(() {
+          _activeDeliveries = active;
+          _robotStatus = status;
+          _currentRobotOrder = currentOrder;
+        });
+      }
+    } catch (e) {
+      // Silent catch for periodic updates
     }
   }
 
@@ -66,7 +112,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     return _activeDeliveries.first as Map<String, dynamic>;
   }
 
-  bool get _isRobotBusy => _activeDeliveries.isNotEmpty;
+  bool get _isRobotBusy => _robotStatus != 'free' && _robotStatus != 'returning';
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +208,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
           child: const Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.local_shipping_rounded, color: kNavyDark, size: 32),
+              Icon(Icons.smart_toy_rounded, color: kNavyDark, size: 32),
               SizedBox(width: 16),
               Text(
                 'Request New Delivery',
@@ -199,10 +245,12 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     final active = _currentActiveDelivery;
     final isBusy = _isRobotBusy;
     final statusColor = isBusy ? const Color(0xFFFF8A50) : const Color(0xFF4ADE80);
-    final statusLabel = isBusy ? 'Busy — In Delivery' : 'Free';
-    final destinationRoom = active != null
-        ? (active['recipient_room_name'] ?? 'Room ${active['recipient_room_id']}')
-        : null;
+    final statusLabel = isBusy ? 'Busy' : 'Free';
+    final destinationRoom = _currentRobotOrder != null
+        ? _currentRobotOrder!['dropoff_room']
+        : (active != null
+            ? (active['recipient_room_name'] ?? 'Room ${active['recipient_room_id']}')
+            : null);
 
     return Card(
       color: kNavyMid,
@@ -278,6 +326,26 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.battery_charging_full_rounded,
+                        size: 15,
+                        color: Colors.white.withOpacity(0.5),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '78%',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                   if (isBusy && destinationRoom != null) ...[
                     const SizedBox(height: 12),

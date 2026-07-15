@@ -498,6 +498,15 @@ class ApiService {
     return data;
   }
 
+  Future<Map<String, dynamic>> getRobotStatus() async {
+    final url = Uri.parse('$_baseUrl/robot/status');
+    final response = await http.get(url);
+    if (response.statusCode != 200) {
+      throw Exception(json.decode(response.body)['error'] ?? 'Failed to get robot status');
+    }
+    return json.decode(response.body);
+  }
+
   Future<List<dynamic>> getDeliveries({
     int? requesterId,
     String? requesterRole,
@@ -589,5 +598,77 @@ class ApiService {
       throw Exception(data['error'] ?? 'Failed to update user');
     }
     return data;
+  }
+
+  Future<Map<String, dynamic>> planLocalPath({
+    required double startX,
+    required double startY,
+    required double goalX,
+    required double goalY,
+    List<dynamic>? obstacles,
+  }) async {
+    final url = Uri.parse('$_baseUrl/robot/plan_local');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'start_x': startX,
+        'start_y': startY,
+        'goal_x': goalX,
+        'goal_y': goalY,
+        'obstacles': obstacles,
+      }),
+    );
+    final data = json.decode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to plan path');
+    }
+    return data;
+  }
+
+  Future<void> saveDrawnObstacles(List<dynamic> jsonObstacles) async {
+    final url = Uri.parse('$_baseUrl/robot/obstacles');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(jsonObstacles),
+    );
+    if (response.statusCode != 200) {
+      final data = json.decode(response.body);
+      throw Exception(data['error'] ?? 'Failed to save obstacles');
+    }
+  }
+
+  Future<List<dynamic>> getDrawnObstacles() async {
+    final url = Uri.parse('$_baseUrl/robot/obstacles');
+    final response = await http.get(url);
+    if (response.statusCode != 200) {
+      final data = json.decode(response.body);
+      throw Exception(data['error'] ?? 'Failed to load obstacles');
+    }
+    return json.decode(response.body) as List<dynamic>;
+  }
+
+  Future<void> saveRoomsBulk(List<dynamic> jsonRooms) async {
+    final url = Uri.parse('$_baseUrl/robot/rooms/bulk');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(jsonRooms),
+    );
+    if (response.statusCode != 200) {
+      final data = json.decode(response.body);
+      throw Exception(data['error'] ?? 'Failed to update rooms');
+    }
+  }
+
+  Future<Map<String, dynamic>> getRosPlan() async {
+    final url = Uri.parse('$_baseUrl/robot/plan_ros');
+    final response = await http.get(url);
+    if (response.statusCode != 200) {
+      final data = json.decode(response.body);
+      throw Exception(data['error'] ?? 'Failed to get ROS plan');
+    }
+    return json.decode(response.body) as Map<String, dynamic>;
   }
 }

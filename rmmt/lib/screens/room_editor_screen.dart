@@ -426,8 +426,6 @@ class _RoomEditorScreenState extends State<RoomEditorScreen> {
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 12),
-                                      _buildStaticCoordTile('Theta (radians)', _selectedRoom!['theta'].toString()),
                                     ],
                                   ),
                                 ),

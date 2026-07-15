@@ -12,8 +12,8 @@ from models import db, Room
 target_rooms = [
     {
         "name": "Room 1",
-        "x": -14.62,
-        "y": 2.90,
+        "x": -14.666200,
+        "y": 2.287220,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.15,
@@ -23,8 +23,8 @@ target_rooms = [
     },
     {
         "name": "Room 2",
-        "x": -9.01,
-        "y": 3.19,
+        "x": -9.264480,
+        "y": 3.142760,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.50,
@@ -34,8 +34,8 @@ target_rooms = [
     },
     {
         "name": "Room 3",
-        "x": -14.22,
-        "y": -1.65,
+        "x": -14.920000,
+        "y": -1.622170,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.15,
@@ -45,8 +45,8 @@ target_rooms = [
     },
     {
         "name": "Room 4",
-        "x": -8.85,
-        "y": -1.91,
+        "x": -9.000830,
+        "y": -2.436450,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.50,
@@ -68,19 +68,28 @@ target_rooms = [
 ]
 
 def seed_rooms():
-    print("Connecting to database and seeding rooms...")
+    print("Connecting to database and seeding/updating rooms...")
     
     with app.app_context():
         inserted_count = 0
-        skipped_count = 0
+        updated_count = 0
         
         for room_data in target_rooms:
             # Check if a room with the same name already exists
             existing_room = Room.query.filter_by(name=room_data["name"]).first()
             
             if existing_room:
-                print(f"Skipping: Room with name '{room_data['name']}' already exists.")
-                skipped_count += 1
+                print(f"Updating existing room: '{room_data['name']}' (x={room_data['x']}, y={room_data['y']})")
+                existing_room.x = room_data["x"]
+                existing_room.y = room_data["y"]
+                existing_room.theta = room_data["theta"]
+                existing_room.is_robot_home = room_data["is_robot_home"]
+                existing_room.label_x = room_data["label_x"]
+                existing_room.label_y = room_data["label_y"]
+                existing_room.region_width = room_data["region_width"]
+                existing_room.region_height = room_data["region_height"]
+                db.session.commit()
+                updated_count += 1
             else:
                 new_room = Room(
                     name=room_data["name"],
@@ -98,9 +107,9 @@ def seed_rooms():
                 print(f"Successfully Added: {room_data['name']} (x={room_data['x']}, y={room_data['y']}, theta={room_data['theta']}, home={room_data['is_robot_home']})")
                 inserted_count += 1
                 
-        print("\nSeeding summary:")
+        print("\nSeeding/updating summary:")
         print(f"  Total rooms added: {inserted_count}")
-        print(f"  Total rooms skipped (already exists): {skipped_count}")
+        print(f"  Total rooms updated: {updated_count}")
 
 if __name__ == '__main__':
     seed_rooms()

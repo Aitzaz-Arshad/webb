@@ -1,8 +1,15 @@
-2026/07/12-19:12:18.035 7308 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.427b5087\flutter_tools_chrome_device.1d071ca6\Default\shared_proto_db/MANIFEST-000001
-2026/07/12-19:12:18.035 7308 Recovering log #16
-2026/07/12-19:12:18.036 7308 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.427b5087\flutter_tools_chrome_device.1d071ca6\Default\shared_proto_db/000016.log 
-2026/07/12-19:12:18.036 7308 Delete type=0 #3
-2026/07/12-19:12:18.036 7308 Delete type=0 #4
-2026/07/12-19:12:18.036 7308 Delete type=0 #7
-2026/07/12-19:12:18.036 7308 Delete type=0 #10
-2026/07/12-19:12:18.036 7308 Delete type=0 #13
+2026/07/14-19:37:58.699 1f10 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.d43ebb68\flutter_tools_chrome_device.146619c1\Default\shared_proto_db/MANIFEST-000001
+2026/07/14-19:37:58.699 1f10 Recovering log #26
+2026/07/14-19:37:58.700 1f10 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.d43ebb68\flutter_tools_chrome_device.146619c1\Default\shared_proto_db/000026.log 
+2026/07/14-19:37:58.701 1f10 Delete type=0 #3
+2026/07/14-19:37:58.701 1f10 Delete type=0 #4
+2026/07/14-19:37:58.701 1f10 Delete type=0 #7
+2026/07/14-19:37:58.701 1f10 Delete type=2 #8
+2026/07/14-19:37:58.701 1f10 Delete type=0 #10
+2026/07/14-19:37:58.701 1f10 Delete type=2 #11
+2026/07/14-19:37:58.701 1f10 Delete type=0 #13
+2026/07/14-19:37:58.701 1f10 Delete type=2 #14
+2026/07/14-19:37:58.701 1f10 Delete type=0 #16
+2026/07/14-19:37:58.701 1f10 Delete type=2 #17
+2026/07/14-19:37:58.701 1f10 Delete type=0 #19
+2026/07/14-19:37:58.701 1f10 Delete type=0 #23

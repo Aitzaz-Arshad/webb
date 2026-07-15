@@ -72,6 +72,8 @@ class AStarPlanner:
 
                 if not self.verify_node(node):
                     continue
+                if not self.is_collision_free(current, node):
+                    continue
                 if n_id in closed_set:
                     continue
                 if n_id not in open_set:
@@ -154,6 +156,9 @@ class AStarPlanner:
         for obs in self.obstacles:
             if obs['type'] == 'polygon' or obs['type'] == 'rectangle':
                 points = obs['points']
+                # If start or end node is inside this obstacle, bypass edge intersection check for it
+                if self.is_point_inside_polygon(start_node, points) or self.is_point_inside_polygon(end_node, points):
+                    continue
                 n = len(points)
                 for i in range(n):
                     p3 = Point(points[i][0], points[i][1])
@@ -166,6 +171,12 @@ class AStarPlanner:
         """Check if a node is inside map and respects 2m safety margin from obstacles."""
         if not (self.min_x <= node.x <= self.max_x and self.min_y <= node.y <= self.max_y):
             return False
+
+        # Relax constraints for nodes close to start or goal to prevent start/goal blocking
+        if math.hypot(node.x - self.start[0], node.y - self.start[1]) < self.resolution * 1.5:
+            return True
+        if math.hypot(node.x - self.goal[0], node.y - self.goal[1]) < self.resolution * 1.5:
+            return True
 
         safety_margin =self.resolution*0.2  # meters fixed
         

@@ -89,7 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Icon(
-                      Icons.local_shipping_rounded,
+                      Icons.smart_toy_rounded,
                       size: 64,
                       color: kAccent,
                     ),

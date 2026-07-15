@@ -6,6 +6,7 @@ import 'main_screen.dart';
 import 'deliveries_log_screen.dart';
 import 'user_management_screen.dart';
 import 'room_editor_screen.dart';
+import 'live_telemetry_screen.dart';
 
 const Color kNavyDark = Color(0xFF0A1526);
 const Color kNavyMid = Color(0xFF122140);
@@ -67,8 +68,8 @@ class AdminDashboardScreen extends StatelessWidget {
                     title: 'Live Telemetry',
                     description: 'Monitor robot sensors, real-time feedback loops, and network status parameters.',
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Robot telemetry link active. Open Path Planner to view live paths.')),
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const LiveTelemetryScreen()),
                       );
                     },
                     painterBuilder: (color) => TelemetryPainter(color: color),

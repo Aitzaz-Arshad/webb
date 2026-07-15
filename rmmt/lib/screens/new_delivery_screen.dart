@@ -93,181 +93,7 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     });
   }
 
-  void _showDispatchOptionsDialog() {
-    bool localIsScheduled = false;
-    DateTime? localScheduledDateTime;
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: kNavyMid,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Text(
-                'Choose Delivery Option',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RadioListTile<bool>(
-                    title: const Text('Dispatch Immediately', style: TextStyle(color: Colors.white, fontSize: 14)),
-                    subtitle: const Text('Send the robot on delivery right now', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    value: false,
-                    groupValue: localIsScheduled,
-                    activeColor: kAccent,
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (val) {
-                      setDialogState(() {
-                        localIsScheduled = val!;
-                      });
-                    },
-                  ),
-                  RadioListTile<bool>(
-                    title: const Text('Schedule for Later', style: TextStyle(color: Colors.white, fontSize: 14)),
-                    subtitle: const Text('Pick a specific future date and time', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    value: true,
-                    groupValue: localIsScheduled,
-                    activeColor: kAccent,
-                    contentPadding: EdgeInsets.zero,
-                    onChanged: (val) {
-                      setDialogState(() {
-                        localIsScheduled = val!;
-                      });
-                    },
-                  ),
-                  if (localIsScheduled) ...[
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white24),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          backgroundColor: kNavyDark,
-                        ),
-                        icon: const Icon(Icons.date_range_rounded, color: kAccent, size: 18),
-                        label: Text(
-                          localScheduledDateTime == null
-                              ? 'Select Date & Time'
-                              : localScheduledDateTime.toString().split('.')[0],
-                          style: const TextStyle(fontSize: 13),
-                        ),
-                        onPressed: () async {
-                          final date = await showDatePicker(
-                            context: context,
-                            initialDate: DateTime.now().add(const Duration(minutes: 5)),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 30)),
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: const ColorScheme.dark(
-                                    primary: kAccent,
-                                    onPrimary: kNavyDark,
-                                    surface: kNavyMid,
-                                    onSurface: Colors.white,
-                                  ),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (date == null) return;
-                          
-                          if (!context.mounted) return;
-                          final time = await showTimePicker(
-                            context: context,
-                            initialTime: TimeOfDay.fromDateTime(DateTime.now().add(const Duration(minutes: 5))),
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: const ColorScheme.dark(
-                                    primary: kAccent,
-                                    onPrimary: kNavyDark,
-                                    surface: kNavyMid,
-                                    onSurface: Colors.white,
-                                  ),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (time == null) return;
-                          
-                          setDialogState(() {
-                            localScheduledDateTime = DateTime(
-                              date.year,
-                              date.month,
-                              date.day,
-                              time.hour,
-                              time.minute,
-                            );
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kAccent,
-                    foregroundColor: kNavyDark,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onPressed: () {
-                    // Validation for Scheduled option
-                    if (localIsScheduled && localScheduledDateTime == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Please select a scheduled date and time.'),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                      return;
-                    }
-                    if (localIsScheduled && localScheduledDateTime!.isBefore(DateTime.now())) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Scheduled time must be in the future.'),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                      return;
-                    }
-
-                    // Save state and submit
-                    setState(() {
-                      _isScheduled = localIsScheduled;
-                      _scheduledDateTime = localScheduledDateTime;
-                    });
-                    
-                    Navigator.of(context).pop(); // Close dialog
-                    _submit(); // Trigger submit
-                  },
-                  child: const Text('Continue', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _submit() async {
+  void _handleDeliverySubmit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedRecipientRoomId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -288,27 +114,112 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
       return;
     }
 
-    if (_isScheduled) {
-      if (_scheduledDateTime == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select a scheduled date and time.'),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      final statusResponse = await _apiService.getRobotStatus();
+      final String robotStatus = statusResponse['status'] ?? 'free';
+      final int queueLength = statusResponse['queue_length'] ?? 0;
+
+      setState(() {
+        _isSubmitting = false;
+      });
+
+      if (!mounted) return;
+
+      if (robotStatus == 'free' || robotStatus == 'returning') {
+        _submit(isQueueing: false, queuePosition: 0);
+      } else {
+        _showBusyConfirmationDialog(queueLength + 1);
       }
-      if (_scheduledDateTime!.isBefore(DateTime.now())) {
+    } catch (e) {
+      setState(() {
+        _isSubmitting = false;
+      });
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Scheduled time must be in the future.'),
+          SnackBar(
+            content: Text('Failed to check robot status: $e'),
             backgroundColor: Colors.redAccent,
           ),
         );
-        return;
       }
     }
+  }
 
+  void _showBusyConfirmationDialog(int queuePosition) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: kNavyMid,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.hourglass_empty_rounded, color: Colors.orangeAccent, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Robot is Busy',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Robot is currently busy with another delivery. Yours will be added to the queue and dispatched automatically once it\'s free.',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: kNavyDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.format_list_numbered_rounded, color: kAccent, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Queue position: #$queuePosition in line',
+                      style: const TextStyle(color: kAccent, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kAccent,
+                foregroundColor: kNavyDark,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _submit(isQueueing: true, queuePosition: queuePosition);
+              },
+              child: const Text('Queue Delivery', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _submit({required bool isQueueing, required int queuePosition}) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     if (auth.userId == null) return;
 
@@ -325,23 +236,28 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
         _deliveryType == 'room_to_room' ? _selectedPickupRoomId : null,
         _deliveryType,
         recipientName,
-        scheduledAt: _isScheduled ? _scheduledDateTime : null,
+        scheduledAt: null,
       );
 
       if (mounted) {
         String confirmMessage = 'Delivery request submitted successfully!';
-        final robotStatus = response['robot_status'] as String?;
-        if (_isScheduled || robotStatus == 'Scheduled') {
-          confirmMessage = 'Your delivery has been scheduled successfully.';
-        } else if (robotStatus == 'Available') {
-          confirmMessage = 'Robot is available. Your delivery will begin immediately.';
-        } else if (robotStatus == 'Busy') {
-          confirmMessage = 'Robot is currently completing another delivery. Your request has been added to the queue. It will start automatically when the robot becomes available.';
+        if (isQueueing) {
+          confirmMessage = 'Added to queue (Position #$queuePosition in line). It will start automatically.';
+        } else {
+          final recipientMatches = _rooms.where((r) => r['id'] == _selectedRecipientRoomId);
+          final recipientRoomName = recipientMatches.isNotEmpty ? recipientMatches.first['name'] : 'destination';
+          confirmMessage = 'Robot dispatched — heading to $recipientRoomName.';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(confirmMessage),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Expanded(child: Text(confirmMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+              ],
+            ),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 4),
           ),
@@ -840,10 +756,10 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
                             const SizedBox(height: 32),
                             // Submit Button
                             ElevatedButton.icon(
-                              onPressed: _isSubmitting || !_isSelectionComplete() ? null : _showDispatchOptionsDialog,
+                              onPressed: _isSubmitting || !_isSelectionComplete() ? null : _handleDeliverySubmit,
                               icon: _isSubmitting 
                                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: kNavyDark))
-                                  : const Icon(Icons.local_shipping_rounded),
+                                  : const Icon(Icons.smart_toy_rounded),
                               label: const Text('Confirm Delivery'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kAccent,
@@ -895,7 +811,12 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
     final double width = regW * parentWidth;
     final double height = regH * parentHeight;
 
-    final Color roomColor = _getRoomColor(room);
+    final bool isPickup = room['id'] == _selectedPickupRoomId;
+    final bool isRecipient = room['id'] == _selectedRecipientRoomId;
+    final bool isSelected = isPickup || isRecipient;
+    
+    final Color roomColor = isPickup ? Colors.green : (isRecipient ? Colors.orangeAccent : _getRoomColor(room));
+    final double borderWidth = isSelected ? 3.0 : 1.5;
 
     return Positioned(
       left: left,
@@ -906,18 +827,88 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
           onTap: () {
-            // The floor map is display-only. Tapping has no effect on selections.
+            final roomId = room['id'] as int;
+            final isHome = room['is_robot_home'] == true;
+
+            if (_deliveryType == 'home_to_room') {
+              if (isHome) {
+                // "when home to room..when i click on robo room...nothing should happen"
+                return;
+              }
+              setState(() {
+                _selectedRecipientRoomId = roomId;
+                _mapSelectFocus = 'recipient';
+              });
+              _formKey.currentState?.validate();
+            } else if (_deliveryType == 'room_to_room') {
+              setState(() {
+                // If pickup is not selected yet, select as pickup
+                if (_selectedPickupRoomId == null) {
+                  if (roomId == _selectedRecipientRoomId) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Pickup room cannot be the same as destination.')),
+                    );
+                  } else {
+                    _selectedPickupRoomId = roomId;
+                    _mapSelectFocus = 'recipient'; // Move focus to dropoff next
+                  }
+                } else {
+                  // Pickup is already selected. Select as dropoff (recipient)
+                  if (isHome) {
+                    // Robo Room cannot be selected as destination
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Robot home room cannot be selected as destination room.')),
+                    );
+                  } else if (roomId == _selectedPickupRoomId) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Destination room cannot be the same as pickup room.')),
+                    );
+                  } else {
+                    _selectedRecipientRoomId = roomId;
+                  }
+                }
+              });
+              _formKey.currentState?.validate();
+            }
+          },
+          onDoubleTap: () {
+            final roomId = room['id'] as int;
+            final isHome = room['is_robot_home'] == true;
+
+            if (_deliveryType == 'home_to_room') {
+              if (isHome) {
+                // "when home to room..when i click on robo room...nothing should happen"
+                return;
+              }
+              if (_selectedRecipientRoomId == roomId) {
+                setState(() {
+                  _selectedRecipientRoomId = null;
+                });
+                _formKey.currentState?.validate();
+              }
+            } else if (_deliveryType == 'room_to_room') {
+              setState(() {
+                if (_selectedPickupRoomId == roomId) {
+                  _selectedPickupRoomId = null;
+                  _mapSelectFocus = 'pickup'; // Focus back on pickup
+                } else if (_selectedRecipientRoomId == roomId) {
+                  _selectedRecipientRoomId = null;
+                  _mapSelectFocus = 'recipient'; // Focus back on dropoff
+                }
+              });
+              _formKey.currentState?.validate();
+            }
           },
           child: Container(
             decoration: BoxDecoration(
-              color: roomColor.withOpacity(0.35),
-              border: Border.all(color: roomColor, width: 1.5),
+              color: roomColor.withOpacity(isSelected ? 0.5 : 0.25),
+              border: Border.all(color: roomColor, width: borderWidth),
               borderRadius: BorderRadius.circular(6),
               boxShadow: [
                 BoxShadow(
-                  color: roomColor.withOpacity(0.4),
-                  blurRadius: 8,
-                  spreadRadius: 2,
+                  color: roomColor.withOpacity(isSelected ? 0.6 : 0.3),
+                  blurRadius: isSelected ? 12 : 6,
+                  spreadRadius: isSelected ? 3 : 1,
                 )
               ],
             ),
@@ -925,13 +916,13 @@ class _NewDeliveryScreenState extends State<NewDeliveryScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(4.0),
                 child: Text(
-                  room['name'],
+                  room['name'] + (isPickup ? " (Pickup)" : (isRecipient ? " (Dropoff)" : "")),
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.bold,
                     fontSize: 10,
                   ),
                 ),

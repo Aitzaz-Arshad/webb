@@ -66,8 +66,8 @@ def seed_database():
         rooms = [
             Room(
                 name="Room 1",
-                x=-14.62,
-                y=2.90,
+                x=-14.666200,
+                y=2.287220,
                 theta=0.0,
                 is_robot_home=False,
                 label_x=0.15,
@@ -77,8 +77,8 @@ def seed_database():
             ),
             Room(
                 name="Room 2",
-                x=-9.01,
-                y=3.19,
+                x=-9.264480,
+                y=3.142760,
                 theta=0.0,
                 is_robot_home=False,
                 label_x=0.50,
@@ -88,8 +88,8 @@ def seed_database():
             ),
             Room(
                 name="Room 3",
-                x=-14.22,
-                y=-1.65,
+                x=-14.920000,
+                y=-1.622170,
                 theta=0.0,
                 is_robot_home=False,
                 label_x=0.15,
@@ -99,8 +99,8 @@ def seed_database():
             ),
             Room(
                 name="Room 4",
-                x=-8.85,
-                y=-1.91,
+                x=-9.000830,
+                y=-2.436450,
                 theta=0.0,
                 is_robot_home=False,
                 label_x=0.50,

@@ -1,5 +1,6 @@
 import collections
 import platform
+import math
 
 # Bypassing Windows WMI query hang in Python 3.14
 UnameResult = collections.namedtuple('UnameResult', ['system', 'node', 'release', 'version', 'machine', 'processor'])
@@ -10,6 +11,7 @@ platform.win32_ver = lambda *args, **kwargs: ("10", "10.0.0", "", "Multiprocesso
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import multiprocessing
+import threading
 import tkinter as tk
 from tkinter import simpledialog
 
@@ -58,9 +60,35 @@ os.makedirs(os.path.join(os.path.abspath(os.path.dirname(__file__)), 'instance')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-from models import db, migrate, User, Room, Delivery
+from models import db, migrate, User, Room, Delivery, Order, RobotState, Obstacle
+from robot_service import RobotManager
 db.init_app(app)
 migrate.init_app(app, db)
+
+with app.app_context():
+    db.create_all()
+    # Seed default obstacles if table is empty
+    if Obstacle.query.count() == 0:
+        default_walls = [
+            {'type': 'polygon', 'points': [[-8.0, 0.8], [0.0, 0.8], [0.0, 1.2], [-8.0, 1.2]]},
+            {'type': 'polygon', 'points': [[-13.5, 0.8], [-10.5, 0.8], [-10.5, 1.2], [-13.5, 1.2]]},
+            {'type': 'polygon', 'points': [[-16.0, 0.8], [-15.5, 0.8], [-15.5, 1.2], [-16.0, 1.2]]},
+            
+            {'type': 'polygon', 'points': [[-8.0, -1.2], [0.0, -1.2], [0.0, -0.8], [-8.0, -0.8]]},
+            {'type': 'polygon', 'points': [[-13.5, -1.2], [-10.0, -1.2], [-10.0, -0.8], [-13.5, -0.8]]},
+            {'type': 'polygon', 'points': [[-16.0, -1.2], [-15.5, -1.2], [-15.5, -0.8], [-16.0, -0.8]]},
+        ]
+        import json
+        for wall in default_walls:
+            db.session.add(Obstacle(
+                type=wall['type'],
+                points=json.dumps(wall['points'])
+            ))
+        db.session.commit()
+
+robot_manager = RobotManager()
+robot_manager.init_app(app)
+
 
 
 # ===================================================================
@@ -104,16 +132,43 @@ def calculate_path_length(path):
         total_length += np.sqrt(dx**2 + dy**2)
     return total_length
 
+def is_point_inside_polygon_robust(x, y, poly_points):
+    n = len(poly_points)
+    inside = False
+    if n == 0:
+        return False
+    p1x, p1y = poly_points[0][0], poly_points[0][1]
+    for i in range(n + 1):
+        p2x, p2y = poly_points[i % n][0], poly_points[i % n][1]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xinters:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
+
 def check_point_collision(point, obstacles):
     try:
         x, y = float(point[0]), float(point[1])
+        safety_margin = 0.15  # 15 cm safety buffer
+        
         for obs in obstacles:
             if obs.get('type') in ['rectangle', 'polygon']:
                 try:
-                    points = np.array(obs.get('points', []))
+                    points = obs.get('points', [])
                     if len(points) > 0:
-                        if helper_DPR_obj.pointInObstacleListRect((x, y), [points]):
-                            return True
+                        # Quick bounding box check with safety margin
+                        min_x = min(p[0] for p in points) - safety_margin
+                        max_x = max(p[0] for p in points) + safety_margin
+                        min_y = min(p[1] for p in points) - safety_margin
+                        max_y = max(p[1] for p in points) + safety_margin
+                        
+                        if min_x <= x <= max_x and min_y <= y <= max_y:
+                            if is_point_inside_polygon_robust(x, y, points):
+                                return True
                 except Exception:
                     continue
             elif obs.get('type') == 'circle':
@@ -123,7 +178,7 @@ def check_point_collision(point, obstacles):
                     try:
                         cx, cy = float(center[0]), float(center[1])
                         dist = np.sqrt((x - cx)**2 + (y - cy)**2)
-                        if dist <= radius:
+                        if dist <= radius + safety_margin:
                             return True
                     except Exception:
                         continue
@@ -999,13 +1054,27 @@ def delete_room(room_id):
 
 def dispatch_delivery(delivery):
     """
-    Simulates sending the navigation goal to ROS2 Nav2.
+    Dispatches the delivery by creating a corresponding FSM Order and triggering FSM.
     """
     logger.info(f"=== DISPATCHING DELIVERY #{delivery.id} ===")
-    logger.info(f"  Sender: {delivery.sender_name}")
-    logger.info(f"  Recipient: {delivery.recipient_name}")
-    logger.info(f"  Pickup Room: {delivery.pickup_room.name if delivery.pickup_room else 'Robot Home'}")
-    logger.info(f"  Destination Room: {delivery.recipient_room.name}")
+    order_type = 'room_to_room' if delivery.delivery_type == 'room_to_room' else 'robo_to_room'
+    
+    order = Order(
+        type=order_type,
+        pickup_room=delivery.pickup_room.name if delivery.pickup_room else None,
+        dropoff_room=delivery.recipient_room.name,
+        status='pending',
+        scheduled_time=delivery.scheduled_at
+    )
+    db.session.add(order)
+    db.session.commit()
+    
+    delivery.order_id = order.id
+    delivery.is_dispatched = True
+    db.session.commit()
+    
+    # Trigger FSM dispatch immediately in a background thread to prevent HTTP blocking
+    threading.Thread(target=RobotManager().trigger_dispatch).start()
 
 def check_scheduled_deliveries():
     try:
@@ -1039,20 +1108,34 @@ def check_scheduled_deliveries():
     except Exception as e:
         logger.error(f"Error in check_scheduled_deliveries: {e}")
 
+def check_scheduled_orders():
+    try:
+        with app.app_context():
+            threading.Thread(target=RobotManager().trigger_dispatch).start()
+    except Exception as e:
+        logger.error(f"Error in check_scheduled_orders: {e}")
+
 # Initialize BackgroundScheduler
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=check_scheduled_deliveries, trigger="interval", minutes=1)
+scheduler.add_job(func=check_scheduled_orders, trigger="interval", seconds=10)
 scheduler.start()
+
 
 
 def check_robot_availability():
     """
-    Placeholder function to check robot status/availability.
-    Currently returns 'Available' (representing 'IDLE').
-    In the future, this will communicate with ROS2 and return one of:
-    'IDLE', 'DELIVERING', 'RETURNING_HOME', 'CHARGING', 'OFFLINE'.
+    Checks the robot status/availability using FSM state.
     """
-    return "Available"
+    try:
+        status_info = RobotManager().get_status()
+        status = status_info.get('status', 'free')
+        if status in ['free', 'returning']:
+            return "Available"
+        return "Busy"
+    except Exception as e:
+        logger.error(f"Error checking robot availability: {e}")
+        return "Busy"
 
 
 @app.route('/deliveries', methods=['POST'])
@@ -1151,6 +1234,101 @@ def create_delivery():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error creating delivery: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# --- REST API FOR NEW ORDER / ROBOT STATE MACHINE ---
+
+@app.route('/orders', methods=['POST'])
+def create_order():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No order data provided"}), 400
+
+        order_type = data.get('type')
+        pickup_room_name = data.get('pickup_room')
+        dropoff_room_name = data.get('dropoff_room')
+        scheduled_time_str = data.get('scheduled_time')
+
+        if not order_type or not dropoff_room_name:
+            return jsonify({"error": "Missing required fields: type, dropoff_room"}), 400
+
+        if order_type not in ['robo_to_room', 'room_to_room']:
+            return jsonify({"error": "Invalid type. Must be 'robo_to_room' or 'room_to_room'"}), 400
+
+        if order_type == 'room_to_room' and not pickup_room_name:
+            return jsonify({"error": "pickup_room is required for room_to_room orders"}), 400
+
+        # Validate rooms exist in DB
+        dropoff_room = Room.query.filter_by(name=dropoff_room_name).first()
+        if not dropoff_room:
+            return jsonify({"error": f"Dropoff room '{dropoff_room_name}' not found"}), 404
+
+        if order_type == 'room_to_room':
+            pickup_room = Room.query.filter_by(name=pickup_room_name).first()
+            if not pickup_room:
+                return jsonify({"error": f"Pickup room '{pickup_room_name}' not found"}), 404
+
+        # Parse scheduled_time if provided
+        scheduled_time_dt = None
+        if scheduled_time_str:
+            try:
+                # Handle potential trailing Z timezone
+                scheduled_time_dt = datetime.fromisoformat(scheduled_time_str.replace('Z', '+00:00'))
+            except Exception as ex:
+                return jsonify({"error": f"Invalid scheduled_time format. Must be ISO-8601: {ex}"}), 400
+
+        # Create new order
+        new_order = Order(
+            type=order_type,
+            pickup_room=pickup_room_name if order_type == 'room_to_room' else None,
+            dropoff_room=dropoff_room_name,
+            status='pending',
+            scheduled_time=scheduled_time_dt
+        )
+        db.session.add(new_order)
+        db.session.commit()
+
+        # Trigger robot dispatch logic immediately if not scheduled in the future
+        is_future = False
+        if scheduled_time_dt:
+            now_compare = datetime.now(timezone.utc) if scheduled_time_dt.tzinfo else datetime.now()
+            is_future = scheduled_time_dt > now_compare
+
+        if not is_future:
+            # Trigger dispatch asynchronously or on the manager in a background thread
+            threading.Thread(target=RobotManager().trigger_dispatch).start()
+
+        return jsonify({
+            "message": "Order created successfully",
+            "order": new_order.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating order: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/orders/<int:order_id>', methods=['GET'])
+def get_order_status(order_id):
+    try:
+        order = Order.query.get(order_id)
+        if not order:
+            return jsonify({"error": "Order not found"}), 404
+        return jsonify(order.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error fetching order {order_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/robot/status', methods=['GET'])
+def get_robot_status():
+    try:
+        status_info = RobotManager().get_status()
+        return jsonify(status_info), 200
+    except Exception as e:
+        logger.error(f"Error fetching robot status: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1330,6 +1508,155 @@ def update_user(user_id):
         logger.error(f"Error updating user {user_id}: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/robot/obstacles', methods=['POST'])
+def save_obstacles():
+    try:
+        data = request.get_json() or []
+        # Clear old obstacles
+        Obstacle.query.delete()
+        
+        # Save new ones
+        import json
+        for obs in data:
+            new_obs = Obstacle(
+                type=obs.get('type', 'polygon'),
+                points=json.dumps(obs.get('points', []))
+            )
+            db.session.add(new_obs)
+        db.session.commit()
+        return jsonify({"message": "Obstacles saved successfully!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error saving obstacles: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/robot/obstacles', methods=['GET'])
+def get_obstacles():
+    try:
+        obstacles = Obstacle.query.all()
+        return jsonify([obs.to_dict() for obs in obstacles]), 200
+    except Exception as e:
+        logger.error(f"Error fetching obstacles: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/robot/rooms/bulk', methods=['POST'])
+def update_rooms_bulk():
+    try:
+        data = request.get_json() or []
+        for room_data in data:
+            room_id = room_data.get('id')
+            room = Room.query.get(room_id)
+            if room:
+                room.x = float(room_data.get('x', room.x))
+                room.y = float(room_data.get('y', room.y))
+                room.label_x = float(room_data.get('label_x', room.label_x))
+                room.label_y = float(room_data.get('label_y', room.label_y))
+        db.session.commit()
+        return jsonify({"message": "Room locations updated successfully!"}), 200
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error in bulk room updates: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/robot/plan_local', methods=['POST'])
+def plan_local():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No input parameters provided"}), 400
+        
+        start_x = float(data.get('start_x', 0.0))
+        start_y = float(data.get('start_y', 0.0))
+        goal_x = float(data.get('goal_x', 0.0))
+        goal_y = float(data.get('goal_y', 0.0))
+        
+        # Read custom drawn obstacles from request, fallback to database/default seeded obstacles
+        req_obstacles = data.get('obstacles')
+        if req_obstacles is not None:
+            obstacles = req_obstacles
+        else:
+            db_obstacles = Obstacle.query.all()
+            obstacles = []
+            import json
+            for obs in db_obstacles:
+                obstacles.append({
+                    'type': obs.type,
+                    'points': json.loads(obs.points)
+                })
+        
+        boundary = {'bottom_left': (-16.0, -16.0), 'top_right': (16.0, 16.0)}
+        
+        # Inflate the walls by 0.20 meters (20 cm) safety margin
+        margin = 0.20
+        inflated_obstacles = []
+        for obs in obstacles:
+            pts = np.array(obs['points'])
+            cx, cy = np.mean(pts, axis=0)
+            inflated_pts = []
+            for px, py in pts:
+                dx = px - cx
+                dy = py - cy
+                dist = math.hypot(dx, dy)
+                if dist > 0:
+                    px_new = px + (dx / dist) * margin
+                    py_new = py + (dy / dist) * margin
+                else:
+                    px_new = px
+                    py_new = py
+                inflated_pts.append([px_new, py_new])
+            inflated_obstacles.append({
+                'type': 'polygon',
+                'points': inflated_pts
+            })
+        
+        start = (start_x, start_y)
+        goal = (goal_x, goal_y)
+        
+        planner = AStarPlanner(start=start, goal=goal, obstacles=inflated_obstacles, boundary=boundary)
+        path, pruned_path = planner.planning()
+        
+        if not path or len(path) < 2:
+            return jsonify({"error": "No path found! Start or Goal location is blocked by obstacles."}), 404
+            
+        smooth_waypoints = pruned_path
+        if len(pruned_path) >= 3:
+            try:
+                smooth_waypoints, _ = apply_path_smoothing_FIXED(pruned_path, inflated_obstacles)
+                if isinstance(smooth_waypoints, np.ndarray):
+                    smooth_waypoints = smooth_waypoints.tolist()
+            except Exception as e:
+                logger.error(f"Error in path smoothing: {e}")
+                
+        # Clean smooth_waypoints and raw_path to filter out any NaNs/Nones
+        def clean_coords(pts):
+            clean = []
+            for pt in pts:
+                if pt is not None and len(pt) >= 2:
+                    x, y = pt[0], pt[1]
+                    if x is not None and y is not None and not np.isnan(x) and not np.isnan(y):
+                        clean.append([float(x), float(y)])
+            return clean
+
+        return jsonify({
+            "raw_path": clean_coords(path),
+            "pruned_path": clean_coords(pruned_path),
+            "smooth_path": clean_coords(smooth_waypoints)
+        }), 200
+    except Exception as e:
+        logger.error(f"Error in local path planning: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/robot/plan_ros', methods=['GET'])
+def get_ros_plan():
+    try:
+        from robot_service import RobotManager
+        robot_manager = RobotManager()
+        path = robot_manager.get_ros_path()
+        return jsonify({"path": path}), 200
+    except Exception as e:
+        logger.error(f"Error getting ROS plan: {e}")
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     startup_logging()
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=True)
