@@ -889,6 +889,37 @@ def auth_login():
 
 # 2. ROOM CRUD ROUTES
 
+@app.route('/robot/camera_stream', methods=['GET'])
+def camera_stream():
+    from flask import Response, stream_with_context
+    import urllib.request
+    
+    wsl_ip = robot_manager.wsl_ip
+    url = f"http://{wsl_ip}:8080/stream?topic=/camera/image_raw"
+    try:
+        req = urllib.request.urlopen(url, timeout=5)
+        content_type = req.headers.get('Content-Type', 'multipart/x-mixed-replace; boundary=--boundarydonotcross')
+        
+        def generate():
+            try:
+                while True:
+                    chunk = req.read(4096)
+                    if not chunk:
+                        break
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error reading camera stream chunk: {e}")
+            finally:
+                req.close()
+                
+        response = Response(stream_with_context(generate()), content_type=content_type)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    except Exception as e:
+        logger.error(f"Error connecting to ROS camera stream proxy: {e}")
+        return jsonify({"error": f"Error connecting to ROS camera stream: {str(e)}"}), 500
+
+
 @app.route('/floorplan', methods=['GET'])
 def get_floorplan():
     try:

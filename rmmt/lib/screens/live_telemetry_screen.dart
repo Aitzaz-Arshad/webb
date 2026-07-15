@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:path_planning/providers/auth_provider.dart';
 import 'package:path_planning/api/api_service.dart';
+import 'package:path_planning/widgets/camera_stream_stub.dart'
+    if (dart.library.html) 'package:path_planning/widgets/camera_stream_web.dart';
 
 const Color kNavyDark = Color(0xFF0A1526);
 const Color kNavyMid = Color(0xFF122140);
@@ -183,6 +185,8 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
   }
 
   void _showCameraDialog() {
+    final String streamUrl = '${_apiService.baseUrl}/robot/camera_stream';
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -207,35 +211,9 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.white10),
             ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned.fill(
-                  child: Opacity(
-                    opacity: 0.15,
-                    child: Image.asset(
-                      'assets/images/delivery_robot.png',
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(color: kAccent, strokeWidth: 2),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Connecting to robot camera stream...',
-                      style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Topic: /camera/image_raw',
-                      style: TextStyle(color: Colors.white38, fontSize: 11, fontFamily: 'monospace'),
-                    ),
-                  ],
-                ),
-              ],
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: createWebCameraStream(streamUrl, 480, 270),
             ),
           ),
           actions: [

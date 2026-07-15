@@ -53,14 +53,38 @@ class RobotManager:
         # Connect to ROS2 rosbridge
         self._connect_ros()
         
-        # Initialize singleton row in database
+        # Initialize singleton row in database & complete active queues from previous runs
         with self.app.app_context():
+            try:
+                # Mark previous active queues as completed/delivered instead of deleting
+                now = datetime.now(timezone.utc)
+                
+                active_orders = Order.query.filter(Order.status.in_(['pending', 'in_progress'])).all()
+                for o in active_orders:
+                    o.status = 'completed'
+                    
+                active_deliveries = Delivery.query.filter(Delivery.status.in_(['pending', 'in_transit'])).all()
+                for d in active_deliveries:
+                    d.status = 'delivered'
+                    d.delivered_at = now
+                    
+                db.session.commit()
+                logger.info("Marked previous active queue orders and deliveries as completed/delivered.")
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Error completing active queue at startup: {e}")
+
             state = RobotState.query.get(1)
             if not state:
                 state = RobotState(id=1, current_status='free', current_order_id=None)
                 db.session.add(state)
                 db.session.commit()
                 logger.info("Initialized RobotState singleton row.")
+            else:
+                state.current_status = 'free'
+                state.current_order_id = None
+                db.session.commit()
+                logger.info("Reset RobotState singleton to FREE at startup.")
                 
         self._initialized = True
         logger.info(f"RobotManager initialized (WSL IP: {self.wsl_ip}:{self.port})")
