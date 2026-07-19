@@ -12,8 +12,8 @@ from models import db, Room
 target_rooms = [
     {
         "name": "Room 1",
-        "x": -14.666200,
-        "y": 2.287220,
+        "x": -14.861900,
+        "y": 2.165460,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.15,
@@ -23,8 +23,8 @@ target_rooms = [
     },
     {
         "name": "Room 2",
-        "x": -9.264480,
-        "y": 3.142760,
+        "x": -8.937850,
+        "y": 3.330800,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.50,
@@ -34,8 +34,8 @@ target_rooms = [
     },
     {
         "name": "Room 3",
-        "x": -14.920000,
-        "y": -1.622170,
+        "x": -14.934200,
+        "y": -1.483210,
         "theta": 0.0,
         "is_robot_home": False,
         "label_x": 0.15,
@@ -44,20 +44,9 @@ target_rooms = [
         "region_height": 0.12
     },
     {
-        "name": "Room 4",
-        "x": -9.000830,
-        "y": -2.436450,
-        "theta": 0.0,
-        "is_robot_home": False,
-        "label_x": 0.50,
-        "label_y": 0.60,
-        "region_width": 0.15,
-        "region_height": 0.12
-    },
-    {
         "name": "Robot Room",
-        "x": 0.0,
-        "y": 0.0,
+        "x": -0.033712,
+        "y": 0.018029,
         "theta": 0.0,
         "is_robot_home": True,
         "label_x": 0.78,

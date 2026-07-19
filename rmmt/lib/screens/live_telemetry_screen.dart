@@ -120,11 +120,17 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
     }
   }
 
-  // Maps coordinates (meters) to map pixels (0.0 to 1.0) using mathematically solved Affine Transformation
+  double _homeIx = 0.50;
+  double _homeIy = 0.08;
+  bool _isCalibratingHome = false;
+
+  // Maps Gazebo/ROS world coordinates (meters) to normalized image coordinates (0.0 to 1.0)
+  // Matching the floor plan image:
+  // - Top U-shape room (Robo Home 0,0) is inside the U-enclosure: (ix=_homeIx, iy=_homeIy)
   Offset _mapMetersToPixel(double rx, double ry) {
-    double px = 0.04324543 * rx + 0.00126781 * ry + 0.82950885;
-    double py = -0.00189669 * rx - 0.08182023 * ry + 0.40443104;
-    return Offset(px, py);
+    double ix = _homeIx + (rx * 0.018);
+    double iy = _homeIy - (ry * 0.035);
+    return Offset(ix.clamp(0.0, 1.0), iy.clamp(0.0, 1.0));
   }
 
   Future<void> _togglePlannedPath() async {
@@ -360,6 +366,32 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                             onPressed: _isFetchingPath ? null : _togglePlannedPath,
                           ),
                         ),
+                        const SizedBox(height: 16),
+
+                        // OPTION 3: Tap-to-Calibrate Home Location
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _isCalibratingHome ? Colors.amber.withOpacity(0.2) : kNavyDark,
+                              foregroundColor: Colors.white,
+                              side: BorderSide(color: _isCalibratingHome ? Colors.amber : Colors.white24),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: Icon(
+                              Icons.pin_drop_rounded,
+                              color: _isCalibratingHome ? Colors.amber : Colors.white54,
+                              size: 18,
+                            ),
+                            label: Text(_isCalibratingHome ? 'Tap Map to Set Home' : 'Calibrate Home Spot'),
+                            onPressed: () {
+                              setState(() {
+                                _isCalibratingHome = !_isCalibratingHome;
+                              });
+                            },
+                          ),
+                        ),
                         
                         const Spacer(),
                         const Divider(color: Colors.white10),
@@ -394,31 +426,104 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                         borderRadius: BorderRadius.circular(16),
                         child: LayoutBuilder(
                           builder: (context, constraints) {
-                            final double mapWidth = constraints.maxWidth;
-                            final double mapHeight = constraints.maxHeight;
+                            final double boxWidth = constraints.maxWidth;
+                            final double boxHeight = constraints.maxHeight;
 
-                            return Stack(
-                              children: [
-                                // Background floor plan map image
-                                Positioned.fill(
-                                  child: Image.asset(
-                                    'assets/images/telemetry_floor_plan.png',
-                                    fit: BoxFit.contain,
+                            // Floor plan image aspect ratio (~ 0.52 for vertical floorplan)
+                            const double imgAspect = 0.52;
+                            double imgW = boxWidth;
+                            double imgH = boxHeight;
+                            double offsetX = 0.0;
+                            double offsetY = 0.0;
+
+                            if (boxWidth / boxHeight > imgAspect) {
+                              imgH = boxHeight;
+                              imgW = boxHeight * imgAspect;
+                              offsetX = (boxWidth - imgW) / 2.0;
+                            } else {
+                              imgW = boxWidth;
+                              imgH = boxWidth / imgAspect;
+                              offsetY = (boxHeight - imgH) / 2.0;
+                            }
+
+                            final double iconLeft = offsetX + (robotOffset.dx * imgW) - 20;
+                            final double iconTop = offsetY + (robotOffset.dy * imgH) - 20;
+
+                            return GestureDetector(
+                              onTapDown: (details) {
+                                if (_isCalibratingHome) {
+                                  final double tapIx = ((details.localPosition.dx - offsetX) / imgW).clamp(0.0, 1.0);
+                                  final double tapIy = ((details.localPosition.dy - offsetY) / imgH).clamp(0.0, 1.0);
+                                  setState(() {
+                                    _homeIx = tapIx;
+                                    _homeIy = tapIy;
+                                    _isCalibratingHome = false;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('✅ Home (0,0) calibrated to tap spot! (X: ${(tapIx * 100).toStringAsFixed(1)}%, Y: ${(tapIy * 100).toStringAsFixed(1)}%)'),
+                                      backgroundColor: const Color(0xFF4ADE80),
+                                    ),
+                                  );
+                                }
+                              },
+                              child: Stack(
+                                children: [
+                                  // Background floor plan map image (Same clean map as 2D Room Editor)
+                                  Positioned.fill(
+                                    child: Image.asset(
+                                      'assets/images/floor_plan.png',
+                                      fit: BoxFit.contain,
+                                    ),
                                   ),
-                                ),
+
+                                  // Calibration Mode Banner Overlay
+                                  if (_isCalibratingHome)
+                                    Positioned(
+                                      top: 16,
+                                      left: 16,
+                                      right: 16,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.withOpacity(0.95),
+                                          borderRadius: BorderRadius.circular(8),
+                                          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+                                        ),
+                                        child: const Row(
+                                          children: [
+                                            Icon(Icons.touch_app_rounded, color: kNavyDark, size: 20),
+                                            SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'Tap anywhere on the floor plan map to place Home (0,0)',
+                                                style: TextStyle(color: kNavyDark, fontWeight: FontWeight.bold, fontSize: 13),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
 
                                 // Plot Turtlebot ROS Path (Solid Neon Teal)
                                 if (_showRosPath && _rosPath.isNotEmpty)
                                   Positioned.fill(
                                     child: CustomPaint(
-                                      painter: PathPainter(_rosPath, kAccent),
+                                      painter: PathPainter(
+                                        _rosPath,
+                                        kAccent,
+                                        offsetX: offsetX,
+                                        offsetY: offsetY,
+                                        imgW: imgW,
+                                        imgH: imgH,
+                                      ),
                                     ),
                                   ),
 
                                 // Live moving Robot Icon with Pulse effect
                                 Positioned(
-                                  left: robotOffset.dx * mapWidth - 20,
-                                  top: robotOffset.dy * mapHeight - 20,
+                                  left: iconLeft,
+                                  top: iconTop,
                                   width: 40,
                                   height: 40,
                                   child: Stack(
@@ -462,15 +567,16 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                                   ),
                                 ),
                               ],
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
     );
   }
 
@@ -506,12 +612,23 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
   }
 }
 
-// Custom Painter to plot the calculated planning paths over the map
+// Custom Painter to plot the calculated planning paths over the map image with exact letterbox offsets
 class PathPainter extends CustomPainter {
   final List<Offset> points;
   final Color color;
+  final double offsetX;
+  final double offsetY;
+  final double imgW;
+  final double imgH;
 
-  PathPainter(this.points, this.color);
+  PathPainter(
+    this.points,
+    this.color, {
+    required this.offsetX,
+    required this.offsetY,
+    required this.imgW,
+    required this.imgH,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -520,19 +637,27 @@ class PathPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0
+      ..strokeWidth = 3.5
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
     final path = Path();
-    path.moveTo(points[0].dx * size.width, points[0].dy * size.height);
+    double startX = offsetX + (points[0].dx * imgW);
+    double startY = offsetY + (points[0].dy * imgH);
+    path.moveTo(startX, startY);
+
     for (int i = 1; i < points.length; i++) {
-      path.lineTo(points[i].dx * size.width, points[i].dy * size.height);
+      double px = offsetX + (points[i].dx * imgW);
+      double py = offsetY + (points[i].dy * imgH);
+      path.lineTo(px, py);
     }
     canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(covariant PathPainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.color != color;
+      oldDelegate.points != points ||
+      oldDelegate.color != color ||
+      oldDelegate.offsetX != offsetX ||
+      oldDelegate.offsetY != offsetY;
 }

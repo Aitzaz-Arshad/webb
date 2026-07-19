@@ -1113,29 +1113,27 @@ def check_scheduled_deliveries():
             now_utc = datetime.now(timezone.utc)
             now_naive = datetime.now()
             
-            pending_scheduled = Delivery.query.filter(
+            pending_deliveries = Delivery.query.filter(
                 Delivery.status == 'pending',
-                Delivery.scheduled_at != None,
                 Delivery.is_dispatched == False
             ).all()
             
-            for delivery in pending_scheduled:
+            for delivery in pending_deliveries:
                 sched = delivery.scheduled_at
-                is_due = False
-                if sched.tzinfo is not None:
-                    is_due = sched <= now_utc
-                else:
-                    is_due = sched <= now_naive
+                is_due = True
+                if sched is not None:
+                    if sched.tzinfo is not None:
+                        is_due = sched <= now_utc
+                    else:
+                        is_due = sched <= now_naive
                 
                 if is_due:
                     try:
                         dispatch_delivery(delivery)
-                        delivery.is_dispatched = True
-                        db.session.commit()
-                        logger.info(f"Successfully dispatched scheduled delivery #{delivery.id}")
+                        logger.info(f"Successfully dispatched pending delivery #{delivery.id} to queue.")
                     except Exception as ex:
                         db.session.rollback()
-                        logger.error(f"Error dispatching scheduled delivery {delivery.id}: {ex}")
+                        logger.error(f"Error dispatching delivery #{delivery.id}: {ex}")
     except Exception as e:
         logger.error(f"Error in check_scheduled_deliveries: {e}")
 
@@ -1225,19 +1223,11 @@ def create_delivery():
                 is_future = scheduled_at_dt > datetime.now()
 
         # Determine dispatch behavior
-        robot_status = "Available"
-        is_dispatched = False
-
         if not is_future:
-            # Check availability
-            robot_avail = check_robot_availability()
-            if robot_avail in ["Available", "IDLE"]:
-                is_dispatched = True
-                robot_status = "Available"
-            else:
-                is_dispatched = False
-                robot_status = "Busy"
+            is_dispatched = True
+            robot_status = "Queued" if check_robot_availability() == "Busy" else "Available"
         else:
+            is_dispatched = False
             robot_status = "Scheduled"
 
         new_delivery = Delivery(

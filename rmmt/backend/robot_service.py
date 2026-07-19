@@ -4,7 +4,11 @@ import logging
 import threading
 from datetime import datetime, timezone
 import roslibpy
-from models import db, Room, Order, RobotState, Delivery
+import json
+import numpy as np
+from models import db, Room, Order, RobotState, Delivery, Obstacle
+from astar_modified import AStarPlanner
+from PSO_path_smothing import PathSmooting
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,16 @@ def yaw_to_quaternion(yaw):
         'z': float(math.sin(yaw / 2.0)),
         'w': float(math.cos(yaw / 2.0))
     }
+
+def calculate_path_length(path):
+    if len(path) < 2:
+        return 0.0
+    total_length = 0.0
+    for i in range(len(path) - 1):
+        dx = path[i+1][0] - path[i][0]
+        dy = path[i+1][1] - path[i][1]
+        total_length += math.hypot(dx, dy)
+    return total_length
 
 class RobotManager:
     _instance = None
@@ -43,10 +57,15 @@ class RobotManager:
         
         self.ros = None
         self.action_client = None
+        self.follow_path_client = None
+        self.compute_path_client = None
         self.current_goal_id = None
         self.pose_subscriber = None
         self.plan_subscriber = None
+        self.pub_astar = None
+        self.pub_smooth = None
         self.ros_path = []
+        self.return_timer = None
         
         self.state_lock = threading.Lock()
         
@@ -105,6 +124,19 @@ class RobotManager:
         self.action_client = roslibpy.ActionClient(
             self.ros, '/navigate_to_pose', 'nav2_msgs/action/NavigateToPose'
         )
+        self.follow_path_client = roslibpy.ActionClient(
+            self.ros, '/follow_path', 'nav2_msgs/action/FollowPath'
+        )
+        self.compute_path_client = roslibpy.ActionClient(
+            self.ros, '/compute_path_to_pose', 'nav2_msgs/action/ComputePathToPose'
+        )
+        try:
+            self.pub_astar = roslibpy.Topic(self.ros, '/plan', 'nav_msgs/msg/Path')
+            self.pub_smooth = roslibpy.Topic(self.ros, '/plan_smoothed', 'nav_msgs/msg/Path')
+            logger.info("Initialized path publishers for RViz (/plan, /plan_smoothed)")
+        except Exception as e:
+            logger.error(f"Failed to initialize RViz path publishers: {e}")
+            
         try:
             self.pose_subscriber = roslibpy.Topic(self.ros, '/amcl_pose', 'geometry_msgs/msg/PoseWithCovarianceStamped')
             self.pose_subscriber.subscribe(self._on_pose_received)
@@ -125,6 +157,8 @@ class RobotManager:
     def _on_ros_close(self):
         logger.warning("Disconnected from ROS 2 rosbridge.")
         self.action_client = None
+        self.follow_path_client = None
+        self.compute_path_client = None
         if self.pose_subscriber:
             try:
                 self.pose_subscriber.unsubscribe()
@@ -137,6 +171,20 @@ class RobotManager:
             except Exception:
                 pass
             self.plan_subscriber = None
+            
+        if self.pub_astar:
+            try:
+                self.pub_astar.unadvertise()
+            except Exception:
+                pass
+            self.pub_astar = None
+            
+        if self.pub_smooth:
+            try:
+                self.pub_smooth.unadvertise()
+            except Exception:
+                pass
+            self.pub_smooth = None
             
         # Attempt reconnection periodically
         try:
@@ -238,6 +286,20 @@ class RobotManager:
                         logger.info(f"Preempting returning robot for new order #{next_order.id}")
                         self._cancel_current_goal()
                         self._start_order(state, next_order)
+                    elif self.current_goal_id is None:
+                        # Check if robot is already at Home (0.0, 0.0)
+                        home_room = Room.query.filter_by(is_robot_home=True).first()
+                        home_x = home_room.x if home_room else 0.0
+                        home_y = home_room.y if home_room else 0.0
+                        dist_to_home = math.hypot(state.x - home_x, state.y - home_y)
+                        
+                        if dist_to_home < 0.5:
+                            logger.info("Robot is already at Home station. Setting state to FREE.")
+                            state.current_status = 'free'
+                            db.session.commit()
+                        else:
+                            logger.info(f"Robot is returning and needs goal (dist={dist_to_home:.2f}m). Sending return-to-home goal...")
+                            self._send_goal_to_home()
 
     def _get_next_due_order(self):
         """
@@ -272,6 +334,9 @@ class RobotManager:
         """
         Locks state, updates DB, and sends NavigateToPose goal.
         """
+        # Ensure any active returning goal or timer is cleanly preempted
+        self._cancel_current_goal()
+
         order.status = 'in_progress'
         state.current_order_id = order.id
         
@@ -292,14 +357,24 @@ class RobotManager:
 
     def _cancel_current_goal(self):
         """
-        Cancels the active goal on rosbridge.
+        Cancels the active goal across all action clients and stops any return-to-home timer.
         """
-        if self.action_client and self.current_goal_id:
-            logger.info(f"Cancelling Nav2 goal: {self.current_goal_id}")
+        if self.return_timer:
             try:
-                self.action_client.cancel_goal(self.current_goal_id)
-            except Exception as e:
-                logger.error(f"Error cancelling goal: {e}")
+                self.return_timer.cancel()
+                logger.info("Cancelled pending return-to-home timer.")
+            except Exception:
+                pass
+            self.return_timer = None
+
+        if self.current_goal_id:
+            logger.info(f"Cancelling active goal across ROS action clients: {self.current_goal_id}")
+            for client in [self.follow_path_client, self.action_client, self.compute_path_client]:
+                if client:
+                    try:
+                        client.cancel_goal(self.current_goal_id)
+                    except Exception as e:
+                        pass
             self.current_goal_id = None
 
     def _send_goal_to_room(self, room_name):
@@ -311,25 +386,145 @@ class RobotManager:
         self._send_nav2_goal(room.x, room.y, room.theta)
 
     def _send_goal_to_home(self):
+        self.return_timer = None
         room = Room.query.filter_by(is_robot_home=True).first()
         if room:
             logger.info(f"Heading back to robot home: {room.name}")
             self._send_nav2_goal(room.x, room.y, room.theta)
         else:
-            logger.warning("No robot home room configured. Defaulting to (0.0, 0.0, 0.0)")
-            self._send_nav2_goal(0.0, 0.0, 0.0)
+            logger.warning("No robot home room configured. Defaulting to (-0.033712, 0.018029, 0.0)")
+            self._send_nav2_goal(-0.033712, 0.018029, 0.0)
 
-    def _send_nav2_goal(self, x, y, yaw):
-        if not self.ros or not self.ros.is_connected:
-            logger.error("Cannot send Nav2 goal: rosbridge is disconnected.")
-            self._handle_navigation_failure("rosbridge disconnected")
-            return
+    def _make_ros_path_msg(self, waypoints):
+        """Converts waypoints into a ROS 2 nav_msgs/msg/Path message dictionary."""
+        poses = []
+        for i, pt in enumerate(waypoints):
+            pt_x, pt_y = float(pt[0]), float(pt[1])
+            yaw_pt = 0.0
+            if i < len(waypoints) - 1:
+                next_x, next_y = waypoints[i+1][0], waypoints[i+1][1]
+                yaw_pt = math.atan2(next_y - pt_y, next_x - pt_x)
+                
+            poses.append({
+                'header': {
+                    'stamp': {'sec': 0, 'nanosec': 0},
+                    'frame_id': 'map'
+                },
+                'pose': {
+                    'position': {'x': pt_x, 'y': pt_y, 'z': 0.0},
+                    'orientation': yaw_to_quaternion(yaw_pt)
+                }
+            })
             
-        if not self.action_client:
-            logger.error("Cannot send Nav2 goal: ActionClient not initialized.")
-            self._handle_navigation_failure("ActionClient not initialized")
-            return
+        return {
+            'header': {
+                'stamp': {'sec': 0, 'nanosec': 0},
+                'frame_id': 'map'
+            },
+            'poses': poses
+        }
 
+    def _get_inflated_obstacles(self):
+        """Helper to get inflated obstacles from SQLite database."""
+        with self.app.app_context():
+            db_obstacles = Obstacle.query.all()
+            obstacles = []
+            for obs in db_obstacles:
+                obstacles.append({
+                    'type': obs.type,
+                    'points': json.loads(obs.points)
+                })
+        
+        # Inflate obstacles by 20 cm safety margin
+        margin = 0.20
+        inflated_obstacles = []
+        for obs in obstacles:
+            pts = np.array(obs['points'])
+            cx, cy = np.mean(pts, axis=0)
+            inflated_pts = []
+            for px, py in pts:
+                dx = px - cx
+                dy = py - cy
+                dist = math.hypot(dx, dy)
+                if dist > 0:
+                    px_new = px + (dx / dist) * margin
+                    py_new = py + (dy / dist) * margin
+                else:
+                    px_new = px
+                    py_new = py
+                inflated_pts.append([px_new, py_new])
+            inflated_obstacles.append({
+                'type': 'polygon',
+                'points': inflated_pts
+            })
+        return inflated_obstacles
+
+    def _prune_dense_path(self, raw_path, inflated_obstacles):
+        """Downsamples a dense path from Nav2 into key waypoints."""
+        if not raw_path or len(raw_path) < 3:
+            return raw_path
+            
+        boundary = {'bottom_left': (-20.0, -20.0), 'top_right': (20.0, 20.0)}
+        planner = AStarPlanner(start=raw_path[0], goal=raw_path[-1], obstacles=inflated_obstacles, boundary=boundary)
+        pruned = planner.prune_path(raw_path)
+        logger.info(f"Pruned dense path from {len(raw_path)} to {len(pruned)} key waypoints.")
+        return pruned
+
+    def _smooth_pruned_path(self, pruned_path, inflated_obstacles):
+        """Applies PSO path smoothing to a list of waypoints."""
+        smooth_waypoints = pruned_path
+        if len(pruned_path) >= 3:
+            try:
+                way_points_array = np.array(pruned_path)
+                way_points = [way_points_array]
+                total_length = calculate_path_length(pruned_path)
+                smooth_pts, _ = PathSmooting.smooth_path(
+                    way_points,
+                    total_length,
+                    None,
+                    inflated_obstacles
+                )
+                if isinstance(smooth_pts, np.ndarray):
+                    smooth_waypoints = smooth_pts.tolist()
+                else:
+                    smooth_waypoints = smooth_pts
+                logger.info(f"Smoothed path using PSO (length: {total_length:.2f}m -> {calculate_path_length(smooth_waypoints):.2f}m).")
+            except Exception as e:
+                logger.error(f"Error in PSO smoothing: {e}")
+        return smooth_waypoints
+
+    def _execute_follow_path_goal(self, smooth_path):
+        """Sends the smoothed path as a goal to FollowPath action server."""
+        path_msg = self._make_ros_path_msg(smooth_path)
+        goal_msg = {
+            'path': path_msg,
+            'controller_id': '',
+            'goal_checker_id': ''
+        }
+        goal = roslibpy.Goal(goal_msg)
+        temp_goal_id = None
+        
+        def result_cb(result):
+            self._on_goal_result(temp_goal_id, result)
+            
+        def feedback_cb(feedback):
+            pass
+            
+        def err_cb(err):
+            self._on_goal_error(temp_goal_id, err)
+            
+        try:
+            goal_id = self.follow_path_client.send_goal(goal, result_cb, feedback_cb, err_cb)
+            temp_goal_id = goal_id
+            self.current_goal_id = goal_id
+            logger.info(f"Successfully sent custom smooth path to FollowPath. Goal ID: {goal_id}")
+        except Exception as e:
+            logger.error(f"Error sending FollowPath goal: {e}")
+            self._handle_navigation_failure(str(e))
+
+    def _execute_fallback_pose_goal(self, x, y, yaw):
+        """Sends the target pose as fallback to NavigateToPose action server."""
+        logger.info("Executing Fallback: Sending goal pose to standard Nav2 global planner.")
         quat = yaw_to_quaternion(yaw)
         goal_msg = {
             'pose': {
@@ -352,16 +547,12 @@ class RobotManager:
         }
         
         goal = roslibpy.Goal(goal_msg)
-        
-        # We need to capture the returned goal ID synchronously and bind it to callbacks.
-        # Closure-bound callback parameters handle preemption race conditions.
         temp_goal_id = None
         
         def result_cb(result):
             self._on_goal_result(temp_goal_id, result)
             
         def feedback_cb(feedback):
-            # Optional feedback logging
             pass
             
         def err_cb(err):
@@ -371,10 +562,107 @@ class RobotManager:
             goal_id = self.action_client.send_goal(goal, result_cb, feedback_cb, err_cb)
             temp_goal_id = goal_id
             self.current_goal_id = goal_id
-            logger.info(f"Successfully sent goal to Nav2. Assigned Goal ID: {goal_id}")
+            logger.info(f"Successfully sent fallback goal to NavigateToPose. Goal ID: {goal_id}")
         except Exception as e:
-            logger.error(f"Error sending goal via ActionClient: {e}")
+            logger.error(f"Error sending fallback goal via ActionClient: {e}")
             self._handle_navigation_failure(str(e))
+
+    def _send_nav2_goal(self, x, y, yaw):
+        if not self.ros or not self.ros.is_connected:
+            logger.error("Cannot send Nav2 goal: rosbridge is disconnected.")
+            self._handle_navigation_failure("rosbridge disconnected")
+            return
+            
+        if not self.action_client or not self.follow_path_client or not self.compute_path_client:
+            logger.error("Cannot send Nav2 goal: ActionClients not fully initialized.")
+            self._handle_navigation_failure("ActionClients not initialized")
+            return
+
+        logger.info(f"Requesting raw path from Nav2 Global Planner to pose: ({x:.2f}, {y:.2f})")
+        
+        # Prepare ComputePathToPose Goal
+        goal_msg = {
+            'goal': {
+                'header': {
+                    'frame_id': 'map',
+                    'stamp': {'sec': 0, 'nanosec': 0}
+                },
+                'pose': {
+                    'position': {'x': float(x), 'y': float(y), 'z': 0.0},
+                    'orientation': yaw_to_quaternion(yaw)
+                }
+            },
+            'planner_id': '',
+            'use_start': False
+        }
+        
+        goal = roslibpy.Goal(goal_msg)
+        
+        def result_callback(result):
+            try:
+                status = result.get('status')
+                is_success = (status == roslibpy.GoalStatus.SUCCEEDED or status == roslibpy.GoalStatus.SUCCEEDED.value or status == 4)
+                if not is_success:
+                    logger.warning(f"ComputePathToPose action failed with status: {status}. Running fallback.")
+                    self._execute_fallback_pose_goal(x, y, yaw)
+                    return
+                
+                path_res = result.get('result', {}).get('path', {})
+                poses = path_res.get('poses', [])
+                if not poses:
+                    logger.warning("ComputePathToPose returned an empty path. Running fallback.")
+                    self._execute_fallback_pose_goal(x, y, yaw)
+                    return
+                
+                # Extract coordinates
+                raw_path = []
+                for p in poses:
+                    pos = p.get('pose', {}).get('position', {})
+                    raw_path.append([float(pos.get('x', 0.0)), float(pos.get('y', 0.0))])
+                
+                logger.info(f"Received raw Nav2 path of {len(raw_path)} points.")
+                
+                # Load and inflate obstacles
+                inflated_obstacles = self._get_inflated_obstacles()
+                
+                # Downsample/prune raw path to key waypoints
+                pruned_path = self._prune_dense_path(raw_path, inflated_obstacles)
+                
+                # Smooth pruned path
+                smooth_path = self._smooth_pruned_path(pruned_path, inflated_obstacles)
+                
+                # Publish both paths to RViz topics
+                if self.pub_astar:
+                    try:
+                        self.pub_astar.publish(self._make_ros_path_msg(raw_path))
+                        logger.info("Published raw Nav2 path to /plan")
+                    except Exception as pe:
+                        logger.error(f"Failed to publish raw path: {pe}")
+                        
+                if self.pub_smooth:
+                    try:
+                        self.pub_smooth.publish(self._make_ros_path_msg(smooth_path))
+                        logger.info("Published smoothed PSO path to /plan_smoothed")
+                    except Exception as pe:
+                        logger.error(f"Failed to publish smooth path: {pe}")
+                
+                # Send smoothed path to follow_path
+                self._execute_follow_path_goal(smooth_path)
+                
+            except Exception as ex:
+                logger.error(f"Error processing computed path: {ex}. Running fallback.")
+                self._execute_fallback_pose_goal(x, y, yaw)
+
+        def err_callback(err):
+            logger.error(f"ComputePathToPose action error: {err}. Running fallback.")
+            self._execute_fallback_pose_goal(x, y, yaw)
+            
+        try:
+            self.compute_path_client.send_goal(goal, result_callback, None, err_callback)
+            logger.info("Sent ComputePathToPose request to Nav2 Global Planner...")
+        except Exception as e:
+            logger.error(f"Error requesting path from Nav2: {e}. Running fallback.")
+            self._execute_fallback_pose_goal(x, y, yaw)
 
     def _on_goal_result(self, goal_id, result):
         """
@@ -439,9 +727,8 @@ class RobotManager:
                     state.current_order_id = None
                     db.session.commit()
                     
-                    self._send_goal_to_home()
-                    # Try to preempt the returning state immediately if another order is waiting
-                    self.trigger_dispatch()
+                    logger.info("Delivery completed! Pausing 5s for package pickup, then returning home...")
+                    threading.Timer(5.0, self._send_goal_to_home).start()
 
                 elif state.current_status == 'returning':
                     # Reached home room -> transition to FREE, look for new jobs
