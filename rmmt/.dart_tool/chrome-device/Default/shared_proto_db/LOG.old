@@ -1,16 +1,28 @@
-2026/07/18-03:47:45.063 1fc4 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.958731c7\flutter_tools_chrome_device.bd2694f9\Default\shared_proto_db/MANIFEST-000001
-2026/07/18-03:47:45.063 1fc4 Recovering log #29
-2026/07/18-03:47:45.064 1fc4 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.958731c7\flutter_tools_chrome_device.bd2694f9\Default\shared_proto_db/000029.log 
-2026/07/18-03:47:45.064 1fc4 Delete type=0 #3
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #4
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #7
-2026/07/18-03:47:45.065 1fc4 Delete type=2 #8
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #10
-2026/07/18-03:47:45.065 1fc4 Delete type=2 #11
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #13
-2026/07/18-03:47:45.065 1fc4 Delete type=2 #14
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #16
-2026/07/18-03:47:45.065 1fc4 Delete type=2 #17
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #19
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #23
-2026/07/18-03:47:45.065 1fc4 Delete type=0 #26
+2026/07/21-11:59:48.195 37b4 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.847955e1\flutter_tools_chrome_device.1e95e5f\Default\shared_proto_db/MANIFEST-000001
+2026/07/21-11:59:48.196 37b4 Recovering log #29
+2026/07/21-11:59:48.197 37b4 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.847955e1\flutter_tools_chrome_device.1e95e5f\Default\shared_proto_db/000029.log 
+2026/07/21-11:59:48.198 37b4 Delete type=0 #3
+2026/07/21-11:59:48.198 37b4 Delete type=0 #4
+2026/07/21-11:59:48.198 37b4 Delete type=0 #7
+2026/07/21-11:59:48.198 37b4 Delete type=2 #8
+2026/07/21-11:59:48.198 37b4 Delete type=0 #10
+2026/07/21-11:59:48.198 37b4 Delete type=2 #11
+2026/07/21-11:59:48.198 37b4 Delete type=0 #13
+2026/07/21-11:59:48.198 37b4 Delete type=2 #14
+2026/07/21-11:59:48.198 37b4 Delete type=0 #16
+2026/07/21-11:59:48.198 37b4 Delete type=2 #17
+2026/07/21-11:59:48.198 37b4 Delete type=0 #19
+2026/07/21-11:59:48.198 37b4 Delete type=0 #23
+2026/07/21-11:59:48.198 37b4 Delete type=0 #26
+2026/07/21-12:00:08.872 3140 Level-0 table #33: started
+2026/07/21-12:00:08.875 3140 Level-0 table #33: 139838 bytes OK
+2026/07/21-12:00:08.876 3140 Delete type=0 #29
+2026/07/21-12:00:08.876 16f8 Compacting 4@0 + 1@1 files
+2026/07/21-12:00:08.881 16f8 Generated table #34@0: 1633 keys, 125056 bytes
+2026/07/21-12:00:08.881 16f8 Compacted 4@0 + 1@1 files => 125056 bytes
+2026/07/21-12:00:08.882 16f8 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/07/21-12:00:08.882 16f8 Delete type=2 #21
+2026/07/21-12:00:08.882 16f8 Delete type=2 #24
+2026/07/21-12:00:08.882 16f8 Delete type=2 #27
+2026/07/21-12:00:08.882 16f8 Delete type=2 #30
+2026/07/21-12:00:08.883 16f8 Delete type=2 #33

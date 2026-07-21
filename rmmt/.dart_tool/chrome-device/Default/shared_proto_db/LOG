@@ -1,16 +1,21 @@
-2026/07/18-04:12:23.982 6440 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.520fdba0\flutter_tools_chrome_device.57507350\Default\shared_proto_db/MANIFEST-000001
-2026/07/18-04:12:23.982 6440 Recovering log #29
-2026/07/18-04:12:23.983 6440 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.520fdba0\flutter_tools_chrome_device.57507350\Default\shared_proto_db/000029.log 
-2026/07/18-04:12:23.983 6440 Delete type=0 #3
-2026/07/18-04:12:23.983 6440 Delete type=0 #4
-2026/07/18-04:12:23.983 6440 Delete type=0 #7
-2026/07/18-04:12:23.983 6440 Delete type=2 #8
-2026/07/18-04:12:23.984 6440 Delete type=0 #10
-2026/07/18-04:12:23.984 6440 Delete type=2 #11
-2026/07/18-04:12:23.984 6440 Delete type=0 #13
-2026/07/18-04:12:23.984 6440 Delete type=2 #14
-2026/07/18-04:12:23.984 6440 Delete type=0 #16
-2026/07/18-04:12:23.984 6440 Delete type=2 #17
-2026/07/18-04:12:23.984 6440 Delete type=0 #19
-2026/07/18-04:12:23.984 6440 Delete type=0 #23
-2026/07/18-04:12:23.984 6440 Delete type=0 #26
+2026/07/21-15:25:41.418 17f8 Reusing MANIFEST C:\Users\aitza\AppData\Local\Temp\flutter_tools.13bad63a\flutter_tools_chrome_device.ebae0d60\Default\shared_proto_db/MANIFEST-000001
+2026/07/21-15:25:41.419 17f8 Recovering log #32
+2026/07/21-15:25:41.419 17f8 Reusing old log C:\Users\aitza\AppData\Local\Temp\flutter_tools.13bad63a\flutter_tools_chrome_device.ebae0d60\Default\shared_proto_db/000032.log 
+2026/07/21-15:25:41.420 17f8 Delete type=0 #3
+2026/07/21-15:25:41.420 17f8 Delete type=0 #4
+2026/07/21-15:25:41.420 17f8 Delete type=0 #7
+2026/07/21-15:25:41.420 17f8 Delete type=2 #8
+2026/07/21-15:25:41.420 17f8 Delete type=0 #10
+2026/07/21-15:25:41.420 17f8 Delete type=2 #11
+2026/07/21-15:25:41.420 17f8 Delete type=0 #13
+2026/07/21-15:25:41.420 17f8 Delete type=2 #14
+2026/07/21-15:25:41.420 17f8 Delete type=0 #16
+2026/07/21-15:25:41.420 17f8 Delete type=2 #17
+2026/07/21-15:25:41.420 17f8 Delete type=0 #19
+2026/07/21-15:25:41.420 17f8 Delete type=2 #21
+2026/07/21-15:25:41.420 17f8 Delete type=0 #23
+2026/07/21-15:25:41.420 17f8 Delete type=2 #24
+2026/07/21-15:25:41.420 17f8 Delete type=0 #26
+2026/07/21-15:25:41.420 17f8 Delete type=2 #27
+2026/07/21-15:25:41.420 17f8 Delete type=0 #29
+2026/07/21-15:25:41.420 17f8 Delete type=2 #30

@@ -95,15 +95,17 @@ class RobotManager:
 
             state = RobotState.query.get(1)
             if not state:
-                state = RobotState(id=1, current_status='free', current_order_id=None)
+                state = RobotState(id=1, current_status='free', current_order_id=None, x=0.0, y=0.0)
                 db.session.add(state)
                 db.session.commit()
-                logger.info("Initialized RobotState singleton row.")
+                logger.info("Initialized RobotState singleton row at (0.0, 0.0).")
             else:
                 state.current_status = 'free'
                 state.current_order_id = None
+                state.x = 0.0
+                state.y = 0.0
                 db.session.commit()
-                logger.info("Reset RobotState singleton to FREE at startup.")
+                logger.info("Reset RobotState singleton to FREE at (0.0, 0.0) at startup.")
                 
         self._initialized = True
         logger.info(f"RobotManager initialized (WSL IP: {self.wsl_ip}:{self.port})")
@@ -137,12 +139,20 @@ class RobotManager:
         except Exception as e:
             logger.error(f"Failed to initialize RViz path publishers: {e}")
             
-        try:
-            self.pose_subscriber = roslibpy.Topic(self.ros, '/amcl_pose', 'geometry_msgs/msg/PoseWithCovarianceStamped')
-            self.pose_subscriber.subscribe(self._on_pose_received)
-            logger.info("Subscribed to /amcl_pose successfully")
-        except Exception as e:
-            logger.error(f"Failed to subscribe to /amcl_pose: {e}")
+        self.pose_subscribers = []
+        for topic_name, msg_type in [
+            ('/amcl_pose', 'geometry_msgs/msg/PoseWithCovarianceStamped'),
+            ('/odom', 'nav_msgs/msg/Odometry'),
+            ('/pose', 'geometry_msgs/msg/PoseStamped'),
+            ('/robot_pose', 'geometry_msgs/msg/PoseStamped')
+        ]:
+            try:
+                sub = roslibpy.Topic(self.ros, topic_name, msg_type)
+                sub.subscribe(self._on_pose_received)
+                self.pose_subscribers.append(sub)
+                logger.info(f"Subscribed to pose topic '{topic_name}' successfully")
+            except Exception as e:
+                logger.debug(f"Topic subscription note for '{topic_name}': {e}")
             
         try:
             self.plan_subscriber = roslibpy.Topic(self.ros, '/plan', 'nav_msgs/msg/Path')
@@ -195,21 +205,29 @@ class RobotManager:
         
     def _on_pose_received(self, message):
         """
-        Callback when robot pose is received from AMCL. Updates DB coords.
+        Callback when robot pose is received from ROS (AMCL, Odom, or Pose topics).
+        Updates DB coords in real time.
         """
         try:
-            pose_cov = message.get('pose', {})
-            pose = pose_cov.get('pose', {})
-            position = pose.get('position', {})
-            x = position.get('x', 0.0)
-            y = position.get('y', 0.0)
+            pose_data = message.get('pose', {})
+            if isinstance(pose_data, dict) and 'pose' in pose_data:
+                pose = pose_data.get('pose', {})
+            elif isinstance(pose_data, dict):
+                pose = pose_data
+            else:
+                pose = message
+                
+            position = pose.get('position', {}) if isinstance(pose, dict) else {}
+            x = position.get('x', None)
+            y = position.get('y', None)
             
-            with self.app.app_context():
-                state = RobotState.query.get(1)
-                if state:
-                    state.x = float(x)
-                    state.y = float(y)
-                    db.session.commit()
+            if x is not None and y is not None:
+                with self.app.app_context():
+                    state = RobotState.query.get(1)
+                    if state:
+                        state.x = float(x)
+                        state.y = float(y)
+                        db.session.commit()
         except Exception as e:
             logger.error(f"Error processing pose message: {e}")
 
@@ -249,6 +267,15 @@ class RobotManager:
                 order = Order.query.get(state.current_order_id)
                 if order:
                     order_dict = order.to_dict()
+                    delivery = Delivery.query.filter_by(order_id=order.id).first()
+                    if delivery:
+                        order_dict['sender_name'] = delivery.sender_name
+                        order_dict['recipient_name'] = delivery.recipient_name
+                        order_dict['pickup_room_name'] = delivery.pickup_room.name if delivery.pickup_room else (order.pickup_room or "Robot Room")
+                        order_dict['recipient_room_name'] = delivery.recipient_room.name if delivery.recipient_room else order.dropoff_room
+                    else:
+                        order_dict['pickup_room_name'] = order.pickup_room or "Robot Room"
+                        order_dict['recipient_room_name'] = order.dropoff_room
                     
             pending_count = Order.query.filter_by(status='pending').count()
             return {
@@ -387,13 +414,21 @@ class RobotManager:
 
     def _send_goal_to_home(self):
         self.return_timer = None
+        with self.app.app_context():
+            state = RobotState.query.get(1)
+            if state:
+                state.current_status = 'returning'
+                state.current_order_id = None
+                db.session.commit()
+                logger.info("Updated robot status to 'returning'.")
+
         room = Room.query.filter_by(is_robot_home=True).first()
         if room:
             logger.info(f"Heading back to robot home: {room.name}")
             self._send_nav2_goal(room.x, room.y, room.theta)
         else:
-            logger.warning("No robot home room configured. Defaulting to (-0.033712, 0.018029, 0.0)")
-            self._send_nav2_goal(-0.033712, 0.018029, 0.0)
+            logger.warning("No robot home room configured. Defaulting to (0.0, 0.0, 0.0)")
+            self._send_nav2_goal(0.0, 0.0, 0.0)
 
     def _make_ros_path_msg(self, waypoints):
         """Converts waypoints into a ROS 2 nav_msgs/msg/Path message dictionary."""

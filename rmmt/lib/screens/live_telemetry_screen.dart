@@ -1,10 +1,7 @@
 // lib/screens/live_telemetry_screen.dart
 
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:path_planning/providers/auth_provider.dart';
 import 'package:path_planning/api/api_service.dart';
 import 'package:path_planning/widgets/camera_stream_stub.dart'
     if (dart.library.html) 'package:path_planning/widgets/camera_stream_web.dart';
@@ -37,10 +34,12 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  // Active ROS Path states from WSL Turtlebot RViz
+  // Active ROS Path states & map theme controls
   List<Offset> _rosPath = [];
   bool _showRosPath = false;
   bool _isFetchingPath = false;
+  String _mapTheme = 'clean'; // 'clean', 'dark_hud', 'classic'
+  final TransformationController _transformationController = TransformationController();
 
   @override
   void initState() {
@@ -120,16 +119,77 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
     }
   }
 
-  double _homeIx = 0.50;
-  double _homeIy = 0.08;
-  bool _isCalibratingHome = false;
+  void _zoomIn() {
+    final double currentScale = _transformationController.value.getMaxScaleOnAxis();
+    if (currentScale < 4.5) {
+      _transformationController.value = _transformationController.value.scaled(1.25, 1.25, 1.0);
+    }
+  }
+
+  void _zoomOut() {
+    final double currentScale = _transformationController.value.getMaxScaleOnAxis();
+    if (currentScale > 0.6) {
+      _transformationController.value = _transformationController.value.scaled(0.8, 0.8, 1.0);
+    }
+  }
+
+  void _resetZoom() {
+    _transformationController.value = Matrix4.identity();
+  }
+
+  void _cycleMapTheme() {
+    setState(() {
+      if (_mapTheme == 'clean') {
+        _mapTheme = 'dark_hud';
+      } else if (_mapTheme == 'dark_hud') {
+        _mapTheme = 'classic';
+      } else {
+        _mapTheme = 'clean';
+      }
+    });
+
+    final String label = _mapTheme == 'clean'
+        ? 'Clean Floorplan (Transparent)'
+        : (_mapTheme == 'dark_hud' ? 'Cyberpunk Dark HUD' : 'Raw SLAM Grid');
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Map Style: $label'),
+        duration: const Duration(seconds: 1),
+        backgroundColor: kNavyMid,
+      ),
+    );
+  }
+
+  String get _currentMapAsset {
+    if (_mapTheme == 'dark_hud') {
+      return 'assets/images/my_sim_world_dark.png';
+    } else if (_mapTheme == 'classic') {
+      return 'assets/images/my_sim_world_classic.png';
+    } else {
+      return 'assets/images/my_sim_world.png';
+    }
+  }
 
   // Maps Gazebo/ROS world coordinates (meters) to normalized image coordinates (0.0 to 1.0)
-  // Matching the floor plan image:
-  // - Top U-shape room (Robo Home 0,0) is inside the U-enclosure: (ix=_homeIx, iy=_homeIy)
+  // Matching my_sim_world.yaml & my_sim_world.pgm (640x640 px):
+  // - resolution: 0.05 m/px
+  // - origin: [-16.0, -16.0, 0.0]
+  // - map dimensions: 640x640 px (32.0m x 32.0m)
+  // - Real-world span: X in [-16.0m, +16.0m], Y in [-16.0m, +16.0m]
+  // - Standard ROS to Canvas Transformation:
+  //   ix = (rx - (-16.0)) / 32.0 = (rx + 16.0) / 32.0
+  //   iy = (16.0 - ry) / 32.0  (Y inverted because Canvas Y=0 is at Top)
   Offset _mapMetersToPixel(double rx, double ry) {
-    double ix = _homeIx + (rx * 0.018);
-    double iy = _homeIy - (ry * 0.035);
+    const double xMin = -16.0;
+    const double xMax = 16.0;
+    const double yMin = -16.0;
+    const double yMax = 16.0;
+
+    double ix = (rx - xMin) / (xMax - xMin);
+    double iy = (yMax - ry) / (yMax - yMin);
+
     return Offset(ix.clamp(0.0, 1.0), iy.clamp(0.0, 1.0));
   }
 
@@ -315,7 +375,14 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                         const SizedBox(height: 12),
                         _buildParamRow(Icons.battery_std_rounded, 'Battery Level', '78% (Static)'),
                         
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 16),
+                        const Divider(color: Colors.white10),
+                        const SizedBox(height: 12),
+                        
+                        // Active Delivery Details Card (Pickup, Dropoff, Sender, Recipient)
+                        _buildActiveDeliveryCard(),
+
+                        const SizedBox(height: 16),
                         const Divider(color: Colors.white10),
                         const SizedBox(height: 12),
                         
@@ -366,32 +433,7 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                             onPressed: _isFetchingPath ? null : _togglePlannedPath,
                           ),
                         ),
-                        const SizedBox(height: 16),
 
-                        // OPTION 3: Tap-to-Calibrate Home Location
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _isCalibratingHome ? Colors.amber.withOpacity(0.2) : kNavyDark,
-                              foregroundColor: Colors.white,
-                              side: BorderSide(color: _isCalibratingHome ? Colors.amber : Colors.white24),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            icon: Icon(
-                              Icons.pin_drop_rounded,
-                              color: _isCalibratingHome ? Colors.amber : Colors.white54,
-                              size: 18,
-                            ),
-                            label: Text(_isCalibratingHome ? 'Tap Map to Set Home' : 'Calibrate Home Spot'),
-                            onPressed: () {
-                              setState(() {
-                                _isCalibratingHome = !_isCalibratingHome;
-                              });
-                            },
-                          ),
-                        ),
                         
                         const Spacer(),
                         const Divider(color: Colors.white10),
@@ -424,154 +466,127 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final double boxWidth = constraints.maxWidth;
-                            final double boxHeight = constraints.maxHeight;
+                        child: Stack(
+                          children: [
+                            // Interactive Pan & Zoom Area
+                            InteractiveViewer(
+                              transformationController: _transformationController,
+                              minScale: 0.5,
+                              maxScale: 5.0,
+                              boundaryMargin: const EdgeInsets.all(120),
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final double boxWidth = constraints.maxWidth;
+                                  final double boxHeight = constraints.maxHeight;
 
-                            // Floor plan image aspect ratio (~ 0.52 for vertical floorplan)
-                            const double imgAspect = 0.52;
-                            double imgW = boxWidth;
-                            double imgH = boxHeight;
-                            double offsetX = 0.0;
-                            double offsetY = 0.0;
+                                  // my_sim_world map aspect ratio (640x640 square = 1.0)
+                                  const double imgAspect = 1.0;
+                                  double imgW = boxWidth;
+                                  double imgH = boxHeight;
+                                  double offsetX = 0.0;
+                                  double offsetY = 0.0;
 
-                            if (boxWidth / boxHeight > imgAspect) {
-                              imgH = boxHeight;
-                              imgW = boxHeight * imgAspect;
-                              offsetX = (boxWidth - imgW) / 2.0;
-                            } else {
-                              imgW = boxWidth;
-                              imgH = boxWidth / imgAspect;
-                              offsetY = (boxHeight - imgH) / 2.0;
-                            }
+                                  if (boxWidth / boxHeight > imgAspect) {
+                                    imgH = boxHeight;
+                                    imgW = boxHeight * imgAspect;
+                                    offsetX = (boxWidth - imgW) / 2.0;
+                                  } else {
+                                    imgW = boxWidth;
+                                    imgH = boxWidth / imgAspect;
+                                    offsetY = (boxHeight - imgH) / 2.0;
+                                  }
 
-                            final double iconLeft = offsetX + (robotOffset.dx * imgW) - 20;
-                            final double iconTop = offsetY + (robotOffset.dy * imgH) - 20;
+                                  final double iconLeft = offsetX + (robotOffset.dx * imgW) - 20;
+                                  final double iconTop = offsetY + (robotOffset.dy * imgH) - 20;
 
-                            return GestureDetector(
-                              onTapDown: (details) {
-                                if (_isCalibratingHome) {
-                                  final double tapIx = ((details.localPosition.dx - offsetX) / imgW).clamp(0.0, 1.0);
-                                  final double tapIy = ((details.localPosition.dy - offsetY) / imgH).clamp(0.0, 1.0);
-                                  setState(() {
-                                    _homeIx = tapIx;
-                                    _homeIy = tapIy;
-                                    _isCalibratingHome = false;
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('✅ Home (0,0) calibrated to tap spot! (X: ${(tapIx * 100).toStringAsFixed(1)}%, Y: ${(tapIy * 100).toStringAsFixed(1)}%)'),
-                                      backgroundColor: const Color(0xFF4ADE80),
-                                    ),
-                                  );
-                                }
-                              },
-                              child: Stack(
-                                children: [
-                                  // Background floor plan map image (Same clean map as 2D Room Editor)
-                                  Positioned.fill(
-                                    child: Image.asset(
-                                      'assets/images/floor_plan.png',
-                                      fit: BoxFit.contain,
-                                    ),
-                                  ),
-
-                                  // Calibration Mode Banner Overlay
-                                  if (_isCalibratingHome)
-                                    Positioned(
-                                      top: 16,
-                                      left: 16,
-                                      right: 16,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.withOpacity(0.95),
-                                          borderRadius: BorderRadius.circular(8),
-                                          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+                                  return Stack(
+                                    children: [
+                                      // Background floor plan map image (my_sim_world 2D SLAM grid map: origin [-16, -16], 640x640 px, 0.05m/px)
+                                      Positioned.fill(
+                                        child: Image.asset(
+                                          _currentMapAsset,
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Image.asset(
+                                              'assets/images/floor_plan.png',
+                                              fit: BoxFit.contain,
+                                            );
+                                          },
                                         ),
-                                        child: const Row(
+                                      ),
+
+                                      // Plot Turtlebot ROS Path (Solid Neon Teal)
+                                      if (_showRosPath && _rosPath.isNotEmpty)
+                                        Positioned.fill(
+                                          child: CustomPaint(
+                                            painter: PathPainter(
+                                              _rosPath,
+                                              kAccent,
+                                              offsetX: offsetX,
+                                              offsetY: offsetY,
+                                              imgW: imgW,
+                                              imgH: imgH,
+                                            ),
+                                          ),
+                                        ),
+
+                                      // Live moving Robot Icon with Pulse effect
+                                      Positioned(
+                                        left: iconLeft,
+                                        top: iconTop,
+                                        width: 40,
+                                        height: 40,
+                                        child: Stack(
+                                          alignment: Alignment.center,
                                           children: [
-                                            Icon(Icons.touch_app_rounded, color: kNavyDark, size: 20),
-                                            SizedBox(width: 10),
-                                            Expanded(
-                                              child: Text(
-                                                'Tap anywhere on the floor plan map to place Home (0,0)',
-                                                style: TextStyle(color: kNavyDark, fontWeight: FontWeight.bold, fontSize: 13),
+                                            // Pulse ring overlay
+                                            ScaleTransition(
+                                              scale: _pulseAnimation,
+                                              child: Container(
+                                                width: 32,
+                                                height: 32,
+                                                decoration: BoxDecoration(
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(color: kAccent.withOpacity(0.4), width: 2),
+                                                  color: kAccent.withOpacity(0.08),
+                                                ),
+                                              ),
+                                            ),
+                                            
+                                            // Robot avatar icon
+                                            Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: kAccent,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: kAccent.withOpacity(0.5),
+                                                    blurRadius: 10,
+                                                    spreadRadius: 2,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: const Icon(
+                                                Icons.smart_toy_rounded,
+                                                color: kNavyDark,
+                                                size: 18,
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                    ),
-
-                                // Plot Turtlebot ROS Path (Solid Neon Teal)
-                                if (_showRosPath && _rosPath.isNotEmpty)
-                                  Positioned.fill(
-                                    child: CustomPaint(
-                                      painter: PathPainter(
-                                        _rosPath,
-                                        kAccent,
-                                        offsetX: offsetX,
-                                        offsetY: offsetY,
-                                        imgW: imgW,
-                                        imgH: imgH,
-                                      ),
-                                    ),
-                                  ),
-
-                                // Live moving Robot Icon with Pulse effect
-                                Positioned(
-                                  left: iconLeft,
-                                  top: iconTop,
-                                  width: 40,
-                                  height: 40,
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      // Pulse ring overlay
-                                      ScaleTransition(
-                                        scale: _pulseAnimation,
-                                        child: Container(
-                                          width: 32,
-                                          height: 32,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: kAccent.withOpacity(0.4), width: 2),
-                                            color: kAccent.withOpacity(0.08),
-                                          ),
-                                        ),
-                                      ),
-                                      
-                                      // Robot avatar icon
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: kAccent,
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: kAccent.withOpacity(0.5),
-                                              blurRadius: 10,
-                                              spreadRadius: 2,
-                                            ),
-                                          ],
-                                        ),
-                                        child: const Icon(
-                                          Icons.smart_toy_rounded,
-                                          color: kNavyDark,
-                                          size: 18,
-                                        ),
-                                      ),
                                     ],
-                                  ),
-                                ),
-                              ],
+                                  );
+                                },
+                              ),
                             ),
-                          );
-                        },
+
+                            // Floating Zoom & Pan Controls (In, Out, Reset)
+                            _buildZoomControls(),
+                          ],
+                        ),
                       ),
-                    ),
                   ),
                 ),
               ],
@@ -608,6 +623,128 @@ class _LiveTelemetryScreenState extends State<LiveTelemetryScreen> with SingleTi
         const Spacer(),
         Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
       ],
+    );
+  }
+
+  Widget _buildActiveDeliveryCard() {
+    final order = _currentOrder;
+    final String pickupRoom = order?['pickup_room_name'] ?? order?['pickup_room'] ?? 'Robot Room';
+    final String dropoffRoom = order?['recipient_room_name'] ?? order?['dropoff_room'] ?? 'N/A';
+    final String sender = order?['sender_name'] ?? order?['sender_account_name'] ?? 'System User';
+    final String recipient = order?['recipient_name'] ?? 'N/A';
+    final bool hasActiveOrder = order != null || (_robotStatus != 'free' && _robotStatus != 'returning');
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: kNavyDark.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: hasActiveOrder ? kAccent.withOpacity(0.4) : Colors.white10,
+          width: hasActiveOrder ? 1.5 : 1.0,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.local_shipping_rounded,
+                color: hasActiveOrder ? kAccent : Colors.white38,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Active Delivery Order',
+                style: TextStyle(
+                  color: hasActiveOrder ? Colors.white : Colors.white54,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (hasActiveOrder) ...[
+            _buildDeliveryDetailRow(Icons.unarchive_rounded, 'Pickup', pickupRoom, Colors.green),
+            const SizedBox(height: 6),
+            _buildDeliveryDetailRow(Icons.archive_rounded, 'Dropoff', dropoffRoom, Colors.orangeAccent),
+            const SizedBox(height: 6),
+            _buildDeliveryDetailRow(Icons.person_rounded, 'Sender', sender, Colors.white70),
+            const SizedBox(height: 6),
+            _buildDeliveryDetailRow(Icons.person_pin_circle_rounded, 'Recipient', recipient, kAccent),
+          ] else ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4.0),
+              child: Text(
+                'No active delivery in progress.',
+                style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeliveryDetailRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Text('$label: ', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildZoomControls() {
+    return Positioned(
+      top: 16,
+      right: 16,
+      child: Container(
+        decoration: BoxDecoration(
+          color: kNavyDark.withOpacity(0.85),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white24),
+          boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 8)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+              tooltip: 'Zoom In',
+              onPressed: _zoomIn,
+            ),
+            const Divider(color: Colors.white10, height: 1),
+            IconButton(
+              icon: const Icon(Icons.remove_rounded, color: Colors.white, size: 20),
+              tooltip: 'Zoom Out',
+              onPressed: _zoomOut,
+            ),
+            const Divider(color: Colors.white10, height: 1),
+            IconButton(
+              icon: const Icon(Icons.restart_alt_rounded, color: kAccent, size: 20),
+              tooltip: 'Reset View',
+              onPressed: _resetZoom,
+            ),
+            const Divider(color: Colors.white10, height: 1),
+            IconButton(
+              icon: const Icon(Icons.palette_outlined, color: kAccent, size: 20),
+              tooltip: 'Switch Map Style',
+              onPressed: _cycleMapTheme,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

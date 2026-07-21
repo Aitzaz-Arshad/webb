@@ -44,13 +44,13 @@ target_rooms = [
         "region_height": 0.12
     },
     {
-        "name": "Robot Room",
-        "x": -0.033712,
-        "y": 0.018029,
+        "name": "Robo Room",
+        "x": -0.875430,
+        "y": -0.401534,
         "theta": 0.0,
         "is_robot_home": True,
-        "label_x": 0.78,
-        "label_y": 0.40,
+        "label_x": 0.447,
+        "label_y": 0.032,
         "region_width": 0.15,
         "region_height": 0.12
     }

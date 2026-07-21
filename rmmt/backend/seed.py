@@ -25,32 +25,18 @@ def seed_database():
         print("Creating default users (hashing passwords)...")
         users = [
             User(
-                name="System Administrator",
-                email="admin@parcelpath.com",
+                name="Ali (Admin)",
+                email="ali1@gmail.com",
                 password_hash=generate_password_hash("admin123"),
                 role="admin",
                 is_active=True
             ),
             User(
-                name="Jane Doe (Student)",
-                email="student1@parcelpath.com",
-                password_hash=generate_password_hash("student123"),
+                name="Ali",
+                email="ali@gmail.com",
+                password_hash=generate_password_hash("user123"),
                 role="user",
                 is_active=True
-            ),
-            User(
-                name="John Smith (Faculty)",
-                email="student2@parcelpath.com",
-                password_hash=generate_password_hash("student123"),
-                role="user",
-                is_active=True
-            ),
-            User(
-                name="Deactivated Test Account",
-                email="deactivated@parcelpath.com",
-                password_hash=generate_password_hash("test1234"),
-                role="user",
-                is_active=False
             )
         ]
         db.session.add_all(users)
@@ -59,7 +45,7 @@ def seed_database():
         # Save ids for reference
         admin_id = users[0].id
         student1_id = users[1].id
-        student2_id = users[2].id
+        student2_id = users[1].id
 
         # 3. Seed Rooms
         print("Creating navigation room coordinates...")
@@ -109,13 +95,13 @@ def seed_database():
                 region_height=0.12
             ),
             Room(
-                name="Robot Room",
-                x=0.0,
-                y=0.0,
+                name="Robo Room",
+                x=-0.875430,
+                y=-0.401534,
                 theta=0.0,
                 is_robot_home=True,
-                label_x=0.78,
-                label_y=0.40,
+                label_x=0.447,
+                label_y=0.032,
                 region_width=0.15,
                 region_height=0.12
             )
